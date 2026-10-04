@@ -51,7 +51,9 @@ const dimensions = computed(() => {
       ? `比例 ${s.ratioWidth}:${s.ratioHeight}`
       : s.axis === "original"
         ? "原尺寸"
-        : `${{ width: "宽", height: "高", longest: "长边" }[s.axis]}≤${s.limit}px`;
+        : s.axis === "boundingBox"
+          ? `宽≤${s.maxWidth} · 高≤${s.maxHeight}`
+          : `${{ width: "宽", height: "高", longest: "长边" }[s.axis]}≤${s.limit}px`;
 });
 const controls = computed(() => [
   { key: "dimensions", label: "尺寸", value: dimensions.value },
@@ -159,9 +161,31 @@ const controls = computed(() => [
                   <option value="width">宽度</option>
                   <option value="height">高度</option>
                   <option value="longest">最长边</option>
+                  <option value="boundingBox">宽高限制</option>
                   <option value="original">保持原尺寸</option>
                 </select></label
-              ><label v-if="model.axis !== 'original'" class="wm-field"
+              >
+              <div v-if="model.axis === 'boundingBox'" class="dimension-fields">
+                <label
+                  >最大宽度（px）<input
+                    v-model.number="model.maxWidth"
+                    type="number"
+                    min="1"
+                    max="16384"
+                    step="1"
+                    aria-label="最大宽度"
+                /></label>
+                <label
+                  >最大高度（px）<input
+                    v-model.number="model.maxHeight"
+                    type="number"
+                    min="1"
+                    max="16384"
+                    step="1"
+                    aria-label="最大高度"
+                /></label>
+              </div>
+              <label v-else-if="model.axis !== 'original'" class="wm-field"
                 >数值（px）<input
                   v-model.number="model.limit"
                   type="number"

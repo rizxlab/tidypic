@@ -144,6 +144,7 @@ function select(image: ImageJob) {
                 {{ formatName(image.format) }}</template
               ></span
             >
+            <slot name="row-notice" :image="image" />
             <p v-if="image.error" class="row-error">{{ image.error }}</p>
           </div>
           <slot name="row-actions" :image="image" />

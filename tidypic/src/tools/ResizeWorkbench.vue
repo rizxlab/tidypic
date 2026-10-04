@@ -7,11 +7,13 @@ import TransformPreview from "../components/resize/TransformPreview.vue";
 import { useImagePresets } from "../composables/useImagePresets";
 import { useImageBatch } from "../composables/useImageBatch";
 import {
+  calculateTransform,
   defaultSettings,
   validateSettings,
   type CropState,
 } from "../utils/image/transform/geometry";
 import { processTransform } from "../utils/image/transform/browser";
+import { validateRequirements } from "../utils/presets/requirements";
 import type { ImageJob } from "../utils/image/types";
 const batch = useImageBatch(),
   { images, locked, pending, processing, completed, total, error } = batch;
@@ -24,6 +26,36 @@ const presets = useImagePresets(settings, () => {
   cropStateByImage.value = {};
 });
 const busy = computed(() => locked.value || preparing.value);
+const warnings = computed(() => {
+  const result: Record<string, string[]> = {};
+  const requirements = presets.selected.value?.requirements;
+  if (!requirements) return result;
+  for (const image of images.value) {
+    if (!image.width) continue;
+    try {
+      const t = calculateTransform(
+        image.width,
+        image.height,
+        settings.value,
+        cropStateByImage.value[image.id],
+      );
+      result[image.id] = validateRequirements(
+        { width: t.canvasWidth, height: t.canvasHeight },
+        requirements,
+      );
+    } catch {
+      /* Invalid processing parameters use the existing form error. */
+    }
+  }
+  return result;
+});
+function resultWarnings(image: ImageJob) {
+  return validateRequirements(
+    { width: image.resultWidth!, height: image.resultHeight! },
+    presets.selected.value?.requirements,
+  );
+}
+
 const selected = computed(
   () =>
     images.value.find((i) => i.id === selectedId.value && i.width) ||
@@ -117,6 +149,15 @@ const label = computed(() =>
     @select="selectedId = $event.id"
     @retry="run"
   >
+    <template #row-notice="{ image }">
+      <p
+        v-for="warning in warnings[image.id]"
+        :key="warning"
+        class="preset-warning"
+      >
+        {{ warning }}
+      </p>
+    </template>
     <template #row-actions="{ image }"
       ><button
         v-if="cropping && image.width"
@@ -149,5 +190,25 @@ const label = computed(() =>
     :disabled="busy"
     @adjust="adjust"
   />
-  <BatchResults :batch="batch" :disabled="preparing" @retry="run()" />
+  <BatchResults :batch="batch" :disabled="preparing" @retry="run()">
+    <template #row-notice="{ image }">
+      <p
+        v-for="warning in resultWarnings(image)"
+        :key="warning"
+        class="preset-warning"
+      >
+        {{ warning }}
+      </p>
+    </template>
+  </BatchResults>
 </template>
+
+<style scoped>
+.preset-warning {
+  margin: 4px 0 0;
+  color: #886018;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+</style>

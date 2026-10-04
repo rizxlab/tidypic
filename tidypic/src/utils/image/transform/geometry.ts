@@ -1,8 +1,10 @@
 import type { ImageFormat } from "../types";
 export interface TransformSettings {
   mode: "limit" | "exact" | "ratio";
-  axis: "width" | "height" | "longest" | "original";
+  axis: "width" | "height" | "longest" | "original" | "boundingBox";
   limit: number;
+  maxWidth: number;
+  maxHeight: number;
   width: number;
   height: number;
   ratioWidth: number;
@@ -31,6 +33,8 @@ export const defaultSettings = (): TransformSettings => ({
   mode: "limit",
   axis: "width",
   limit: 800,
+  maxWidth: 1200,
+  maxHeight: 1500,
   width: 800,
   height: 800,
   ratioWidth: 1,
@@ -56,7 +60,9 @@ export function validateSettings(s: TransformSettings) {
   if (
     s.mode === "limit" &&
     s.axis !== "original" &&
-    (!Number.isInteger(s.limit) || s.limit < 1 || s.limit > 16384)
+    !(s.axis === "boundingBox" ? [s.maxWidth, s.maxHeight] : [s.limit]).every(
+      (v) => Number.isInteger(v) && v >= 1 && v <= 16384,
+    )
   )
     throw new TransformError("尺寸请输入 1–16384 之间的整数。");
   if (
@@ -127,11 +133,18 @@ export function calculateTransform(
     canvasWidth = w,
     canvasHeight = h;
   if (s.mode === "limit" && s.axis !== "original") {
-    const scale = Math.min(
-      1,
-      s.limit /
-        (s.axis === "width" ? w : s.axis === "height" ? h : Math.max(w, h)),
-    );
+    const scale =
+      s.axis === "boundingBox"
+        ? Math.min(1, s.maxWidth / w, s.maxHeight / h)
+        : Math.min(
+            1,
+            s.limit /
+              (s.axis === "width"
+                ? w
+                : s.axis === "height"
+                  ? h
+                  : Math.max(w, h)),
+          );
     canvasWidth = Math.max(1, Math.round(w * scale));
     canvasHeight = Math.max(1, Math.round(h * scale));
   } else if (s.mode === "ratio" || (s.mode === "exact" && s.fit === "crop")) {

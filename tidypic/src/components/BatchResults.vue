@@ -43,11 +43,13 @@ const failed = computed(() =>
           ><span class="result-meta"
             >{{ image.resultWidth }} × {{ image.resultHeight }}
             <span class="meta-separator">·</span>
-            {{ formatBytes(image.resultSize!)
-            }} · {{ image.resultFormat ? formatName(image.resultFormat) : "" }}<span v-if="image.preservedOriginal" class="preserved"
+            {{ formatBytes(image.resultSize!) }} ·
+            {{ image.resultFormat ? formatName(image.resultFormat) : ""
+            }}<span v-if="image.preservedOriginal" class="preserved"
               >保留原图</span
             ></span
           >
+          <slot name="row-notice" :image="image" />
         </div>
         <button
           class="download-one"

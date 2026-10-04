@@ -1,7 +1,32 @@
+import { defaultSettings } from "../../utils/image/transform/geometry.ts";
 import type { ImagePreset } from "../../utils/presets/model";
 
 // Metadata documents the source; only settings is passed to the existing pipeline.
 export const platformPresets: ImagePreset[] = [
+  {
+    id: "pdd-detail",
+    platform: "pinduoduo",
+    platformName: "拼多多",
+    name: "商品详情图",
+    type: "platform",
+    visible: true,
+    summary: "宽 480–1200px · 高≤1500px",
+    settings: {
+      ...defaultSettings(),
+      mode: "limit",
+      axis: "boundingBox",
+      maxWidth: 1200,
+      maxHeight: 1500,
+      sizeUnit: "none",
+      format: "original",
+    },
+    requirements: {
+      minWidth: 480,
+      maxWidth: 1200,
+      maxHeight: 1500,
+      note: "宽 480–1200px · 高≤1500px；小图不会自动放大。",
+    },
+  },
   {
     id: "douyin-product-vertical-3-4",
     platform: "douyin",

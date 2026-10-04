@@ -170,7 +170,9 @@ test("names trim, reject empty / overlong / duplicate, allow own rename", () => 
 });
 
 test("published Douyin templates change only geometry and preserve output preferences", async () => {
-  const { platformPresets } = await import("../src/data/presets/platform.ts");
+  const { platformPresets: allPlatforms } =
+    await import("../src/data/presets/platform.ts");
+  const platformPresets = allPlatforms.filter((p) => p.platform === "douyin");
   const { calculateTransform } =
     await import("../src/utils/image/transform/geometry.ts");
   assert.equal(platformPresets.length, 2);
@@ -218,6 +220,7 @@ test("platform groups contain only visible scenes and keep internal IDs separate
     visible: false,
   };
   assert.deepEqual(platformGroups([...platformPresets, hidden]), [
+    { id: "pinduoduo", name: "拼多多" },
     { id: "douyin", name: "抖音电商" },
   ]);
   assert.equal(visiblePlatformPresets([hidden]).length, 0);

@@ -13,6 +13,9 @@ export interface ImagePreset {
   category?: string;
   visible?: boolean;
   requirements?: {
+    minWidth?: number;
+    maxWidth?: number;
+    maxHeight?: number;
     ratio?: string;
     recommendedSize?: { width: number; height: number };
     minimumSize?: { width: number; height: number };
@@ -57,7 +60,9 @@ function cropSignature(s: TransformSettings) {
     ? ["exact", s.width, s.height, s.fit]
     : s.mode === "ratio"
       ? ["ratio", s.ratioWidth / s.ratioHeight]
-      : ["limit", s.axis, s.axis === "original" ? null : s.limit];
+      : s.axis === "boundingBox"
+        ? ["limit", s.axis, s.maxWidth, s.maxHeight]
+        : ["limit", s.axis, s.axis === "original" ? null : s.limit];
 }
 export function cropNeedsReset(
   before: TransformSettings,
@@ -90,8 +95,13 @@ export function validateName(
 /** Only known processing fields may cross the persistence boundary. */
 export function parseSettings(value: unknown): TransformSettings {
   if (!value || typeof value !== "object") throw new Error("预设参数无效。");
-  const raw = value as Record<string, unknown>,
+  const raw = { ...(value as Record<string, unknown>) },
     defaults = defaultSettings();
+  // Older saved presets predate bounding-box limits. Only migrate absent, unused fields.
+  if (raw.axis !== "boundingBox") {
+    for (const key of ["maxWidth", "maxHeight"] as const)
+      if (!(key in raw)) raw[key] = defaults[key];
+  }
   for (const [key, v] of Object.entries(defaults)) {
     if (
       typeof raw[key] !== typeof v ||
@@ -101,7 +111,7 @@ export function parseSettings(value: unknown): TransformSettings {
   }
   const enums = {
     mode: ["limit", "exact", "ratio"],
-    axis: ["width", "height", "longest", "original"],
+    axis: ["width", "height", "longest", "original", "boundingBox"],
     fit: ["crop", "pad"],
     sizeUnit: ["none", "KB", "MB"],
     format: ["original", "image/jpeg", "image/png", "image/webp"],
