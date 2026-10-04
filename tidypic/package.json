@@ -1,0 +1,24 @@
+{
+  "name": "tidypic",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host localhost",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview --host localhost",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.1",
+    "vite-plugin-pwa": "^1.3.0",
+    "vue-tsc": "^3.3.11"
+  }
+}

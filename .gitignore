@@ -1,0 +1,21 @@
+# Browser automation artifacts (at any project depth)
+.playwright-cli/
+
+# Dependencies and generated builds
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local operating-system metadata
+.DS_Store
+
+# Local environment secrets; keep only explicit example templates
+.env
+.env.local
+.env.*.local
+.env.*
+!.env.example
+!.env.*.example
+
+# Existing local browser-test fixtures, screenshots and downloads
+/tidypic/output/
