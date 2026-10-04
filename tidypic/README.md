@@ -16,7 +16,7 @@ npm run build
 npm run preview
 ```
 
-生产部署将 `dist/` 发布到 HTTPS 静态站点根路径。PWA 仅在生产构建启用；首次在线缓存后支持离线使用，更新时由用户确认。浏览器菜单可安装应用，iOS 使用“分享 → 添加到主屏幕”。
+普通生产构建可将 `dist/` 发布到 HTTPS 静态站点根路径；GitHub Pages 工作流通过 `GITHUB_PAGES=true` 构建到 `/tidypic/` 子路径，部署步骤见[仓库根 README](../README.md)。PWA 仅在生产构建启用；首次在线缓存后支持离线使用，更新时由用户确认。浏览器菜单可安装应用，iOS 使用“分享 → 添加到主屏幕”。
 
 ## 当前功能
 
