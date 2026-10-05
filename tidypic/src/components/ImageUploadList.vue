@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import AppIcon from "./AppIcon.vue";
 import type { ImageCollection } from "../composables/useImageBatch";
 import type { ImageJob, ProcessingStatus } from "../utils/image/types";
 import { formatBytes, formatName } from "../utils/image/browser";
+import { registerImagePaste } from "../utils/image/clipboard";
 const props = defineProps<{
   batch: ImageCollection;
   selectedId?: string;
@@ -17,6 +18,16 @@ const emit = defineEmits<{
 const { images, locked } = props.batch;
 const input = ref<HTMLInputElement>(),
   dragging = ref(false);
+const surface = ref<HTMLElement>();
+let unregisterPaste: (() => void) | undefined;
+onMounted(() => {
+  unregisterPaste = registerImagePaste(surface.value!.ownerDocument, {
+    element: () => surface.value,
+    enabled: () => !locked.value && !props.disabled,
+    add: (files) => { void upload(files); },
+  });
+});
+onBeforeUnmount(() => unregisterPaste?.());
 const labels: Record<ProcessingStatus, string> = {
   reading: "读取中",
   waiting: "等待",
@@ -24,8 +35,8 @@ const labels: Record<ProcessingStatus, string> = {
   done: "完成",
   failed: "失败",
 };
-async function upload(files: FileList | null) {
-  if (files && !props.disabled) await props.batch.add(files);
+async function upload(files: FileList | File[] | null) {
+  if (files && !locked.value && !props.disabled) await props.batch.add(files);
   if (input.value) input.value.value = "";
 }
 let dragDepth = 0;
@@ -60,6 +71,7 @@ function select(image: ImageJob) {
     @change="upload(($event.target as HTMLInputElement).files)"
   />
   <section
+    ref="surface"
     class="upload-surface"
     :class="{ dragging, 'has-images': images.length }"
     @dragenter.prevent="enterDrag"
@@ -76,7 +88,7 @@ function select(image: ImageJob) {
       >
         <span aria-hidden="true">＋</span>选择图片
       </button>
-      <p>JPG / PNG / WebP · 单张最大 40MB</p>
+      <p class="upload-help"><span class="paste-hint">也可直接 Ctrl/⌘ + V 粘贴图片</span><span class="paste-hint-mobile">支持直接粘贴图片</span><br />JPG / PNG / WebP · 单张最大 40MB</p>
     </div>
     <template v-else>
       <div class="list-header">

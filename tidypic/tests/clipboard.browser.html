@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TidyPic 剪贴板浏览器验证</title>
+<body>
+<main style="max-width:900px;margin:24px auto;padding:0 16px">
+  <h1>剪贴板浏览器验证</h1>
+  <button id="run" class="secondary">运行验证</button>
+  <p id="result" role="status">尚未运行</p>
+  <div id="fixture"></div>
+  <label>文字粘贴验证<input id="text" /></label>
+  <textarea aria-label="多行文字粘贴验证"></textarea>
+  <div contenteditable="true" aria-label="可编辑文字粘贴验证">可编辑区域</div>
+</main>
+<script type="module">
+import { createApp, h, nextTick } from 'vue';
+import ImageUploadList from '../src/components/ImageUploadList.vue';
+import { useImageBatch } from '../src/composables/useImageBatch.ts';
+import { useRenameFiles } from '../src/composables/useRenameFiles.ts';
+import '../src/style.css';
+let batch, app;
+const result = document.querySelector('#result');
+const fixture = document.querySelector('#fixture');
+function mount(rename = false) {
+  app?.unmount();
+  app = createApp({setup() {
+    batch = rename ? useRenameFiles() : useImageBatch();
+    return () => h(ImageUploadList, {batch});
+  }});
+  app.mount(fixture);
+}
+mount();
+const assert = (value, message) => { if (!value) throw Error(message); };
+async function settle() {
+  for (let i = 0; batch.locked.value && i < 300; i++) await new Promise(r => setTimeout(r, 10));
+  assert(!batch.locked.value, '导入超时'); await nextTick();
+}
+function transfer(files) {
+  const data = new DataTransfer(); files.forEach(f => data.items.add(f)); return data;
+}
+function paste(files, target = document.body) {
+  const event = new ClipboardEvent('paste', {clipboardData: transfer(files), bubbles: true, cancelable: true, composed: true});
+  target.dispatchEvent(event); return event;
+}
+async function picture(type, name = '') {
+  const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 6;
+  const ctx = canvas.getContext('2d'); ctx.fillStyle = '#365cf5'; ctx.fillRect(0, 0, 8, 6);
+  const blob = await new Promise(r => canvas.toBlob(r, type));
+  return new File([blob], name, {type:blob.type});
+}
+document.querySelector('#run').onclick = async () => {
+  const passed = [];
+  try {
+    mount(); document.activeElement?.blur();
+    const png = await picture('image/png'), jpeg = await picture('image/jpeg'), webp = await picture('image/webp');
+    for (const file of [png, jpeg, webp]) {
+      const e = paste([file]); await settle();
+      const last = batch.images.value.at(-1);
+      assert(e.defaultPrevented && last.format === file.type && last.width === 8 && last.height === 6 && last.processingStatus === 'waiting', `${file.type} 解码失败`);
+      assert(/^clipboard-\d{8}-\d{6}-01\./.test(last.filename), '自动名称失败');
+      passed.push(file.type);
+    }
+    assert(batch.images.value.length === 3, '连续粘贴失败');
+    const duplicate = paste([png, jpeg]); await settle();
+    document.body.dispatchEvent(duplicate); await settle();
+    assert(batch.images.value.length === 5, '多图或去重失败'); passed.push('连续粘贴、多图、同事件去重');
+    const textData = new DataTransfer(); textData.setData('text/plain', 'https://example.com/'); textData.setData('text/html', '<b>text</b>');
+    const textEvent = new ClipboardEvent('paste', {clipboardData:textData, bubbles:true, cancelable:true});
+    document.body.dispatchEvent(textEvent);
+    assert(!textEvent.defaultPrevented && batch.images.value.length === 5, '文本被拦截');
+    for (const target of document.querySelectorAll('#text, textarea, [contenteditable]')) {
+      target.focus(); const e = paste([png], target); assert(!e.defaultPrevented, '编辑区域粘贴被拦截'); target.blur();
+    }
+    assert(batch.images.value.length === 5, '编辑区域触发导入'); passed.push('文本/URL/HTML、input/textarea/contenteditable');
+    paste([new File([new Uint8Array(40 * 1024 * 1024 + 1)], 'large.png', {type:'image/png'})]); await settle();
+    assert(batch.images.value.at(-1).error.includes('40 MB'), '大小校验失败');
+    paste([new File(['GIF89a'], 'bad.gif', {type:'image/gif'})]); await settle();
+    assert(batch.images.value.at(-1).error.includes('暂不支持此文件格式'), '格式校验失败'); passed.push('40MB/不支持格式原有错误');
+    const input = fixture.querySelector('input[type=file]'); input.files = transfer([png]).files;
+    input.dispatchEvent(new Event('change', {bubbles:true})); await settle();
+    fixture.querySelector('.upload-surface').dispatchEvent(new DragEvent('drop', {dataTransfer:transfer([png]), bubbles:true, cancelable:true})); await settle();
+    assert(batch.images.value.length === 9 && batch.images.value.slice(-2).every(i => i.width === 8), '选择/拖拽不一致'); passed.push('选择、拖拽、粘贴统一流程');
+    mount(true); paste(Array.from({length:201}, () => png)); await settle();
+    assert(batch.images.value.length === 0 && batch.error.value.includes('200'), '数量限制被绕过'); passed.push('批量改名200张限制');
+    mount(); await nextTick();
+    result.textContent = `全部通过：${passed.join('；')}`;
+  } catch (error) { result.textContent = `失败：${error.message}；已通过：${passed.join('；')}`; }
+};
+</script>
+</body>
+</html>
