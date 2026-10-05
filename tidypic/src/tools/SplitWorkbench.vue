@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import ToolInputSelection from "../components/ToolInputSelection.vue";
 import ImageUploadList from "../components/ImageUploadList.vue";
 import PreviewLightbox from "../components/PreviewLightbox.vue";
 import SplitParameterBar from "../components/split/SplitParameterBar.vue";
@@ -7,32 +8,22 @@ import GuideEditor from "../components/split/GuideEditor.vue";
 import { useImageBatch } from "../composables/useImageBatch";
 import {
   calculateSlices,
-  sliceFilename,
   SplitError,
   type SplitSettings,
 } from "../utils/image/split/geometry";
-import { encodeSlice } from "../utils/image/split/browser";
+import { splitImage } from "../processors/images";
 import { ImageError, formatBytes, readImage } from "../utils/image/browser";
 import { downloadBlob, createImageZip } from "../utils/image/download";
 import type { ImageFormat, ImageResult, ImageJob } from "../utils/image/types";
-const batch = useImageBatch();
-const {
-  images,
-  locked,
-  processing,
-  packing,
-  error,
-  completed,
-  total,
-  pending,
-} = batch;
+const batch = useImageBatch("tidypic-images.zip", "split");
+const { images, locked, processing, packing, error, completed, total } = batch;
 const settings = ref<SplitSettings & { format: ImageFormat | "original" }>({
   mode: "height",
   height: 1200,
   count: 6,
   format: "original",
 });
-const selectedId = ref(""),
+const selectedId = batch.workspace.activeId,
   guides = ref<Record<string, number[]>>({});
 type Output = ImageResult & { name: string; url: string };
 const results = ref<Record<string, Output[]>>({}),
@@ -89,6 +80,7 @@ watch(
     if (!images.value.some((i) => i.id === selectedId.value && i.height))
       selectedId.value = images.value.find((i) => i.height)?.id || "";
   },
+  { immediate: true },
 );
 function updateGuides(value: number[]) {
   if (!selected.value || locked.value) return;
@@ -101,7 +93,7 @@ function updateGuides(value: number[]) {
 const estimate = computed(() => {
   let count = 0;
   try {
-    for (const i of images.value)
+    for (const i of selected.value ? [selected.value] : [])
       if (i.height)
         count += calculateSlices(
           i.height,
@@ -120,27 +112,14 @@ async function run(only?: ImageJob) {
     clearResults(job.id);
     const output: Output[] = [];
     try {
-      const slices = calculateSlices(
-        source.height,
-        snapshot,
-        guides.value[job.id],
+      const parts = await splitImage(
+        source,
+        job.filename,
+        { ...snapshot, guides: guides.value[job.id] },
+        () => disposed,
       );
-      const format =
-        snapshot.format === "original" ? source.format : snapshot.format;
-      for (let i = 0; i < slices.length; i++) {
-        if (disposed) throw new ImageError("处理已停止。");
-        const result = await encodeSlice(source, slices[i]!, format);
-        output.push({
-          ...result,
-          name: sliceFilename(
-            job.filename,
-            format === "image/jpeg" ? "jpg" : format.split("/")[1]!,
-            i,
-            slices.length,
-          ),
-          url: URL.createObjectURL(result.blob),
-        });
-      }
+      for (const part of parts)
+        output.push({ ...part, url: URL.createObjectURL(part.blob) });
       if (disposed) throw new ImageError("处理已停止。");
       results.value[job.id] = output;
       return output[0]!;
@@ -149,7 +128,7 @@ async function run(only?: ImageJob) {
       if (e instanceof SplitError) throw new ImageError(e.message);
       throw e;
     }
-  }, only);
+  }, only || selected.value);
 }
 async function downloadAll() {
   if (locked.value || !allResults.value.length) return;
@@ -205,19 +184,18 @@ onBeforeUnmount(() => {
     @select="selectedId = $event.id"
     @retry="run"
   />
+  <ToolInputSelection tool="split" :batch="batch" />
   <section class="parameter-bar split-settings">
     <h2>切分设置</h2>
     <SplitParameterBar v-model="settings" :disabled="locked" />
     <div class="watermark-action">
       <span v-if="estimate.error || estimate.count" class="privacy-line">{{
         estimate.error ||
-        (estimate.count
-          ? `预计切成 ${estimate.count} 张`
-          : "")
+        (estimate.count ? `预计切成 ${estimate.count} 张` : "")
       }}</span
       ><button
         class="primary"
-        :disabled="locked || !pending.length"
+        :disabled="locked || !selected?.height || !!estimate.error"
         @click="run()"
       >
         {{ processing ? `正在处理 ${completed} / ${total}` : "开始切分" }}

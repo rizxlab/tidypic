@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import WatermarkContent from "../components/watermark/WatermarkContent.vue";
 import WatermarkParameterBar from "../components/watermark/WatermarkParameterBar.vue";
 import AppIcon from "../components/AppIcon.vue";
 import ImageUploadList from "../components/ImageUploadList.vue";
@@ -13,10 +14,10 @@ import {
   friendlyError,
   ImageError,
 } from "../utils/image/browser";
-import { applyWatermark } from "../utils/image/watermark/draw";
+import { watermarkImage } from "../processors/images";
 import { defaultWatermarkSettings } from "../utils/image/watermark/types";
 import { validateWatermark } from "../utils/image/watermark/layout";
-const batch = useImageBatch("tidypic-watermarked.zip");
+const batch = useImageBatch("tidypic-watermarked.zip", "watermark");
 const {
   images,
   loading,
@@ -28,7 +29,7 @@ const {
   error,
 } = batch;
 const settings = ref(defaultWatermarkSettings());
-const selectedId = ref(""),
+const selectedId = batch.workspace.activeId,
   logo = shallowRef<ImageBitmap>(),
   logoUrl = ref(""),
   logoName = ref("");
@@ -40,8 +41,10 @@ const logoInput = ref<HTMLInputElement>(),
 const controlsLocked = computed(
   () => locked.value || logoLoading.value || preparing.value,
 );
-const selected = computed(() =>
-  images.value.find((image) => image.id === selectedId.value),
+const selected = computed(
+  () =>
+    images.value.find((image) => image.id === selectedId.value) ||
+    images.value[0],
 );
 const valid = computed(() => {
   try {
@@ -79,9 +82,9 @@ watch(
 watch(settings, batch.invalidate, { deep: true, flush: "sync" });
 let disposed = false;
 let tiledInitialized = false;
-function changeLayout(layout: 'single' | 'tiled') {
-  if (layout === 'tiled' && !tiledInitialized) {
-    settings.value.size = 'medium';
+function changeLayout(layout: "single" | "tiled") {
+  if (layout === "tiled" && !tiledInitialized) {
+    settings.value.size = "medium";
     tiledInitialized = true;
   }
   settings.value.layout = layout;
@@ -132,7 +135,7 @@ async function run(only?: ImageJob) {
   }
   try {
     await batch.runWithProcessor(
-      (source) => applyWatermark(source, snapshot, bitmap),
+      (source) => watermarkImage(source, snapshot, bitmap),
       only,
     );
   } catch (e) {
@@ -167,65 +170,51 @@ onBeforeUnmount(() => {
     <div class="watermark-controls">
       <h2>水印设置</h2>
       <fieldset :disabled="controlsLocked">
-        <div class="segmented kind-tabs" aria-label="水印类型">
-          <button
-            :aria-pressed="settings.kind === 'text'"
-            @click="settings.kind = 'text'"
-          >
-            文字水印</button
-          ><button
-            :aria-pressed="settings.kind === 'image'"
-            @click="settings.kind = 'image'"
-          >
-            图片水印
-          </button>
-        </div>
-        <label v-if="settings.kind === 'text'" class="wm-field"
-          >水印文字<input
-            v-model="settings.text"
-            aria-label="水印文字"
-            maxlength="100"
-            placeholder="@自己的店铺"
-        /></label>
-        <div v-else class="logo-upload">
-          <input
-            ref="logoInput"
-            class="sr-only"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            aria-label="选择水印图片"
-            @change="uploadLogo(($event.target as HTMLInputElement).files)"
-          />
-          <div v-if="logoUrl" class="logo-thumb">
-            <img :src="logoUrl" alt="水印图片" />
-          </div>
-          <div class="logo-info">
-            <span v-if="logoName" class="filename" :title="logoName">{{
-              logoName
-            }}</span
-            ><button class="secondary" @click="logoInput?.click()">
-              {{
-                logoLoading
-                  ? "读取中…"
-                  : logo
-                    ? "更换"
-                    : "＋ 选择水印图片"
-              }}</button
-            ><span v-if="!logoName" class="field-note">PNG / JPG / WebP</span>
-          </div>
-        </div>
+        <WatermarkContent v-model="settings" :disabled="controlsLocked"
+          ><template #image>
+            <div class="logo-upload">
+              <input
+                ref="logoInput"
+                class="sr-only"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                aria-label="选择水印图片"
+                @change="uploadLogo(($event.target as HTMLInputElement).files)"
+              />
+              <div v-if="logoUrl" class="logo-thumb">
+                <img :src="logoUrl" alt="水印图片" />
+              </div>
+              <div class="logo-info">
+                <span v-if="logoName" class="filename" :title="logoName">{{
+                  logoName
+                }}</span
+                ><button class="secondary" @click="logoInput?.click()">
+                  {{
+                    logoLoading ? "读取中…" : logo ? "更换" : "＋ 选择水印图片"
+                  }}</button
+                ><span v-if="!logoName" class="field-note"
+                  >PNG / JPG / WebP</span
+                >
+              </div>
+            </div>
+          </template></WatermarkContent
+        >
         <p v-if="logoError" class="row-error" role="alert">{{ logoError }}</p>
-        <WatermarkParameterBar v-model="settings" :disabled="controlsLocked" @layout="changeLayout" />
+        <WatermarkParameterBar
+          v-model="settings"
+          :disabled="controlsLocked"
+          @layout="changeLayout"
+        />
       </fieldset>
-    <div class="watermark-action">
-      <button
-        class="primary"
-        :disabled="controlsLocked || !pending.length || !valid"
-        @click="run()"
-      >
-        {{ actionLabel }}<AppIcon name="arrow" :size="17" />
-      </button>
-    </div>
+      <div class="watermark-action">
+        <button
+          class="primary"
+          :disabled="controlsLocked || !pending.length || !valid"
+          @click="run()"
+        >
+          {{ actionLabel }}<AppIcon name="arrow" :size="17" />
+        </button>
+      </div>
     </div>
     <WatermarkPreview
       ref="preview"
@@ -234,7 +223,6 @@ onBeforeUnmount(() => {
       :logo="logo"
       :paused="processing || preparing"
     />
-
   </section>
   <div v-if="error" class="error-notice" role="alert">
     <span>{{ error }}</span

@@ -7,35 +7,11 @@ import ImageWorkbench from "./tools/ImageWorkbench.vue";
 import RenameWorkbench from "./tools/RenameWorkbench.vue";
 import StitchWorkbench from "./tools/StitchWorkbench.vue";
 import SplitWorkbench from "./tools/SplitWorkbench.vue";
+import WorkflowWorkbench from "./tools/WorkflowWorkbench.vue";
 import WatermarkWorkbench from "./tools/WatermarkWorkbench.vue";
-const tools = [
-  {
-    id: "resize",
-    name: "尺寸调整 + 压缩",
-    icon: "resize",
-    desc: "尺寸与大小，一次搞定",
-  },
-  {
-    id: "convert",
-    name: "格式转换",
-    icon: "convert",
-    desc: "JPG、PNG、WebP 自由转换",
-  },
-  {
-    id: "watermark",
-    name: "添加水印",
-    icon: "watermark",
-    desc: "为图片添加文字或 Logo",
-  },
-  { id: "split", name: "长图切分", icon: "split", desc: "长图分段，轻松上传" },
-  {
-    id: "join",
-    name: "图片拼接",
-    icon: "join",
-    desc: "多张图片，整齐拼在一起",
-  },
-  { id: "rename", name: "批量改名", icon: "rename", desc: "批量整理文件名" },
-];
+import { provideImageWorkspace } from "./composables/useImageWorkspace";
+import { tools } from "./data/tools";
+provideImageWorkspace();
 const current = ref("resize"),
   menu = ref(false),
   menuEl = ref<HTMLElement>();
@@ -94,7 +70,9 @@ onUnmounted(() => {
           @click="menu = !menu"
         >
           <AppIcon name="grid" :size="18" />工具箱<AppIcon
-            class="tool-chevron" name="chevron" :size="14"
+            class="tool-chevron"
+            name="chevron"
+            :size="14"
           />
         </button>
         <nav
@@ -106,7 +84,10 @@ onUnmounted(() => {
           <button
             v-for="tool in tools"
             :key="tool.id"
-            :class="{ selected: current === tool.id }"
+            :class="{
+              selected: current === tool.id,
+              'workflow-menu-item': tool.group === 'workflow',
+            }"
             @click="select(tool.id)"
           >
             <AppIcon :name="tool.icon" /><span>{{ tool.name }}</span
@@ -137,6 +118,7 @@ onUnmounted(() => {
     <SplitWorkbench v-else-if="current === 'split'" />
     <WatermarkWorkbench v-else-if="current === 'watermark'" />
     <StitchWorkbench v-else-if="current === 'join'" />
-    <RenameWorkbench v-else />
+    <RenameWorkbench v-else-if="current === 'rename'" />
+    <WorkflowWorkbench v-else />
   </main>
 </template>

@@ -5,6 +5,7 @@ import AppIcon from "./AppIcon.vue";
 const model = defineModel<OutputSettings>({ required: true });
 const props = defineProps<{
   resize: boolean;
+  embedded?: boolean;
   disabled: boolean;
   canRun: boolean;
   actionLabel: string;
@@ -291,6 +292,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", outside));
       </div>
     </fieldset>
     <button
+      v-if="!embedded"
       class="primary process-button"
       :disabled="disabled || !canRun"
       @click="

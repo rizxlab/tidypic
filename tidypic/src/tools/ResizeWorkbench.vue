@@ -12,14 +12,14 @@ import {
   validateSettings,
   type CropState,
 } from "../utils/image/transform/geometry";
-import { processTransform } from "../utils/image/transform/browser";
+import { resizeImage } from "../processors/images";
 import { validateRequirements } from "../utils/presets/requirements";
 import type { ImageJob } from "../utils/image/types";
-const batch = useImageBatch(),
+const batch = useImageBatch("tidypic-images.zip", "resize"),
   { images, locked, pending, processing, completed, total, error } = batch;
 const settings = ref(defaultSettings()),
   cropStateByImage = ref<Record<string, CropState>>({}),
-  selectedId = ref(""),
+  selectedId = batch.workspace.activeId,
   preparing = ref(false),
   preview = ref<InstanceType<typeof TransformPreview>>();
 const presets = useImagePresets(settings, () => {
@@ -116,7 +116,7 @@ async function run(only?: ImageJob) {
   try {
     await preview.value?.suspend();
     await batch.runWithProcessor(
-      (source, image) => processTransform(source, s, states[image.id]),
+      (source, image) => resizeImage(source, s, states[image.id]),
       only,
     );
   } finally {

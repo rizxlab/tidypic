@@ -6,7 +6,7 @@ import type {
   StitchSettings,
 } from "../../utils/image/stitch/geometry";
 import { renderStitchedImage } from "../../utils/image/stitch/browser";
-import { readImage, friendlyError } from "../../utils/image/browser";
+import { readPreview, friendlyError } from "../../utils/image/browser";
 import PreviewLightbox from "../PreviewLightbox.vue";
 const props = defineProps<{
   images: ImageJob[];
@@ -61,24 +61,11 @@ async function update(token: number) {
         const file = files[index]!;
         let bitmap = cache.get(file);
         if (!bitmap) {
-          const source = await readImage(file);
-          try {
-            const edge = Math.min(
-              512,
-              Math.floor(Math.sqrt(8_000_000 / files.length)),
-            );
-            const scale = Math.min(
-              1,
-              edge / Math.max(source.width, source.height),
-            );
-            bitmap = await createImageBitmap(source.bitmap, {
-              resizeWidth: Math.max(1, Math.round(source.width * scale)),
-              resizeHeight: Math.max(1, Math.round(source.height * scale)),
-              resizeQuality: "high",
-            });
-          } finally {
-            source.bitmap.close();
-          }
+          const edge = Math.min(
+            512,
+            Math.floor(Math.sqrt(8_000_000 / files.length)),
+          );
+          bitmap = (await readPreview(props.images[index]!, edge)).bitmap;
           if (disposed || token !== revision) {
             bitmap.close();
             throw new Error("cancelled");

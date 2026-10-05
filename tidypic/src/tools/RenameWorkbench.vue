@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import SortableImageList from "../components/SortableImageList.vue";
-import FileThumbnail from "../components/rename/FileThumbnail.vue";
-import RenameParameterBar from "../components/rename/RenameParameterBar.vue";
+import RenameSettingsEditor from "../components/rename/RenameSettingsEditor.vue";
+import { renameEntries } from "../processors/images";
 import { useRenameFiles } from "../composables/useRenameFiles";
 import {
   defaultRenameSettings,
@@ -11,28 +11,8 @@ import {
 } from "../utils/files/rename";
 import { createImageZip, downloadBlob } from "../utils/image/download";
 const batch = useRenameFiles(),
-  { images, locked, packing, error } = batch;
+  { images, locked, packing, error, inputError } = batch;
 const settings = ref(defaultRenameSettings());
-const text = computed({
-  get: () =>
-    settings.value.mode === "uniform"
-      ? settings.value.name
-      : settings.value.mode === "prefix"
-        ? settings.value.prefix
-        : settings.value.suffix,
-  set: (value) => {
-    if (settings.value.mode === "uniform") settings.value.name = value;
-    else if (settings.value.mode === "prefix") settings.value.prefix = value;
-    else settings.value.suffix = value;
-  },
-});
-const label = computed(() =>
-  settings.value.mode === "uniform"
-    ? "名称"
-    : settings.value.mode === "prefix"
-      ? "前缀"
-      : "后缀",
-);
 const preview = computed(() =>
   generateRenamedFiles(images.value, settings.value),
 );
@@ -44,6 +24,7 @@ const canRun = computed(
     images.value.length > 0 &&
     images.value.every((i) => i.format && i.processingStatus !== "failed") &&
     !preview.value.error &&
+    !inputError.value &&
     preview.value.entries.some((e) => e.changed),
 );
 watch(
@@ -57,12 +38,8 @@ watch(
 );
 function run() {
   if (!canRun.value) return;
-  const names = generateRenamedFiles(images.value, settings.value);
-  if (names.error) {
-    error.value = names.error;
-    return;
-  }
-  results.value = names.entries.map((e) => ({
+  const entries = renameEntries(images.value, settings.value);
+  results.value = entries.map((e) => ({
     id: e.id,
     name: e.name,
     file: images.value.find((i) => i.id === e.id)!.originalFile,
@@ -103,17 +80,10 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div class="workspace-heading"><h1>批量改名</h1></div>
-  <SortableImageList :batch="batch" @retry="batch.retry"
-    ><template #thumbnail="{ image }"
-      ><FileThumbnail :file="image.originalFile" /></template
-  ></SortableImageList>
+  <SortableImageList :batch="batch" @retry="batch.retry" />
   <section class="parameter-bar split-settings">
     <h2>改名设置</h2>
-    <RenameParameterBar v-model="settings" :disabled="locked" /><label
-      class="wm-field rename-name"
-      >{{ label }}<input v-model="text" :aria-label="label" :disabled="locked"
-      :placeholder="settings.mode === 'uniform' ? '可留空，仅使用编号' : undefined"
-    /></label>
+    <RenameSettingsEditor v-model="settings" :disabled="locked" />
     <div class="watermark-action">
       <span class="privacy-line" role="status">{{
         preview.error && images.length
@@ -127,6 +97,9 @@ onBeforeUnmount(() => {
       </button>
     </div>
   </section>
+  <p v-if="inputError && images.length" class="error-notice" role="alert">
+    {{ inputError }}
+  </p>
   <p v-if="error" class="error-notice" role="alert">{{ error }}</p>
   <section v-if="images.length" class="results-panel">
     <div class="list-header">

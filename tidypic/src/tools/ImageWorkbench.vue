@@ -7,7 +7,7 @@ import type { OutputSettings, ImageJob } from "../utils/image/types";
 import ImageUploadList from "../components/ImageUploadList.vue";
 import BatchResults from "../components/BatchResults.vue";
 const props = defineProps<{ tool: "resize" | "convert" }>();
-const batch = useImageBatch();
+const batch = useImageBatch("tidypic-images.zip", props.tool);
 const {
   images,
   loading,
@@ -67,7 +67,9 @@ function run(image?: ImageJob) {
     @run="run()"
   />
   <div v-if="processing" class="under-bar">
-    <span class="progress-text" role="status">正在处理 {{ completed }} / {{ total }}</span>
+    <span class="progress-text" role="status"
+      >正在处理 {{ completed }} / {{ total }}</span
+    >
   </div>
   <div v-if="error" class="error-notice" role="alert">
     <span>{{ error }}</span

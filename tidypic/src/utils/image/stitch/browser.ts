@@ -1,5 +1,5 @@
 import { ImageError, readImage } from "../browser";
-import type { ImageFormat, ImageResult } from "../types";
+import type { ImageFormat, ImageResult, ImageSource } from "../types";
 import type { StitchLayout, StitchSettings } from "./geometry";
 import { validateStitchOutput } from "./geometry";
 export async function renderStitchedImage(
@@ -54,6 +54,8 @@ export async function encodeStitchedImage(
   settings: StitchSettings,
   format: ImageFormat,
   cancelled = () => false,
+  load: (file: File, index: number) => Promise<ImageSource> = (file) =>
+    readImage(file),
 ): Promise<ImageResult> {
   validateStitchOutput(layout);
   const canvas = document.createElement("canvas");
@@ -64,7 +66,7 @@ export async function encodeStitchedImage(
       settings,
       format,
       async (i) => {
-        const source = await readImage(files[i]!);
+        const source = await load(files[i]!, i);
         return { image: source.bitmap, release: () => source.bitmap.close() };
       },
       undefined,

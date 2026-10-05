@@ -1,4 +1,8 @@
-import { computed, onBeforeUnmount, reactive, ref } from "vue";
+import { toolDefinitions, inputCountError, type ToolId } from "../data/tools";
+import { convertImage } from "../processors/images";
+import { useImageWorkspace } from "./useImageWorkspace";
+import { workspaceTaskFlag } from "../utils/image/pool";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import type {
   ImageJob,
   ImageSource,
@@ -6,27 +10,32 @@ import type {
   OutputSettings,
   ProcessOptions,
 } from "../utils/image/types";
-import {
-  readImage,
-  processImage,
-  createThumbnail,
-  friendlyError,
-} from "../utils/image/browser";
+import { readImage, processImage, friendlyError } from "../utils/image/browser";
 import { validateResizeOptions } from "../utils/image/geometry";
 import { runQueue } from "../utils/image/queue";
 import { outputFilename } from "../utils/image/names";
 import { createImageZip, downloadBlob } from "../utils/image/download";
 
-export function useImageBatch(zipName = "tidypic-images.zip") {
+export function useImageBatch(zipName = "tidypic-images.zip", tool?: ToolId) {
+  const workspace = useImageWorkspace();
   const images = ref<ImageJob[]>([]);
-  const loading = ref(false),
-    processing = ref(false),
-    packing = ref(false),
+  const definition = tool ? toolDefinitions[tool] : undefined;
+  const inputImages = computed(() =>
+    definition?.inputMode === "single"
+      ? images.value.filter((i) => i.id === workspace.active.value?.id)
+      : images.value,
+  );
+  const inputError = computed(() =>
+    definition ? inputCountError(definition, inputImages.value.length) : "",
+  );
+  const loading = workspace.loading,
+    processing = workspaceTaskFlag(workspace),
+    packing = workspaceTaskFlag(workspace),
     error = ref("");
   const completed = ref(0),
     total = ref(0);
   const locked = computed(
-    () => loading.value || processing.value || packing.value,
+    () => workspace.locked.value || processing.value || packing.value,
   );
   const successes = computed(() =>
     images.value.filter((image) => image.processingStatus === "done"),
@@ -39,11 +48,46 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
     ),
   );
   let disposed = false;
-  let nextId = 0;
+  watch(
+    workspace.assets,
+    (assets) => {
+      const previous = new Map(images.value.map((i) => [i.id, i]));
+      images.value = assets.map((asset) => {
+        const existing = previous.get(asset.id);
+        if (existing) {
+          existing.width = asset.width;
+          existing.height = asset.height;
+          existing.format = asset.format;
+          existing.previewUrl = asset.objectUrl;
+          existing.sourcePreviewBlob = asset.previewBlob;
+          existing.sourcePreviewUrl = asset.previewObjectUrl;
+          if (existing.processingStatus === "reading") {
+            existing.processingStatus = asset.status;
+            existing.error = asset.error;
+          }
+          return existing;
+        }
+        return reactive<ImageJob>({
+          id: asset.id,
+          originalFile: asset.file,
+          filename: asset.name,
+          width: asset.width,
+          height: asset.height,
+          originalSize: asset.size,
+          format: asset.format,
+          previewUrl: asset.objectUrl,
+          sourcePreviewBlob: asset.previewBlob,
+          sourcePreviewUrl: asset.previewObjectUrl,
+          processingStatus: asset.status,
+          error: asset.error,
+          preservedOriginal: false,
+        });
+      });
+    },
+    { immediate: true, flush: "sync" },
+  );
 
   function release(image: ImageJob) {
-    if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
-    image.previewUrl = "";
     image.resultBlob = undefined;
   }
   function resetResult(image: ImageJob) {
@@ -68,18 +112,17 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
     }
   }
   function remove(id: string) {
-    if (locked.value) return;
-    const image = images.value.find((image) => image.id === id);
-    if (image) release(image);
-    images.value = images.value.filter((image) => image.id !== id);
+    if (!locked.value) workspace.remove(id);
   }
   function clear() {
     if (locked.value) return;
-    images.value.forEach(release);
-    images.value = [];
+    workspace.clear();
     error.value = "";
     completed.value = 0;
     total.value = 0;
+  }
+  function reorder(ids: string[]) {
+    workspace.reorder(ids);
   }
   async function inspect(image: ImageJob): Promise<ImageSource> {
     const source = await readImage(image.originalFile);
@@ -87,10 +130,6 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
       image.width = source.width;
       image.height = source.height;
       image.format = source.format;
-      if (!image.previewUrl && !disposed) {
-        const thumbnail = await createThumbnail(source);
-        if (!disposed) image.previewUrl = URL.createObjectURL(thumbnail);
-      }
       return source;
     } catch (e) {
       source.bitmap.close();
@@ -98,46 +137,23 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
     }
   }
   async function add(files: FileList | File[]) {
-    if (locked.value || disposed || !files.length) return;
-    loading.value = true;
-    error.value = "";
-    const added = Array.from(files, (file) =>
-      reactive<ImageJob>({
-        id: `image-${++nextId}`,
-        originalFile: file,
-        filename: file.name,
-        width: 0,
-        height: 0,
-        originalSize: file.size,
-        previewUrl: "",
-        processingStatus: "reading",
-        error: "",
-        preservedOriginal: false,
-      }),
-    );
-    images.value.push(...added);
-    try {
-      // Decode metadata/thumbnail one at a time; never retain full-size bitmaps in the list.
-      for (const image of added) {
-        if (disposed) break;
-        let source: ImageSource | undefined;
-        try {
-          source = await inspect(image);
-          image.processingStatus = "waiting";
-        } catch (e) {
-          image.processingStatus = "failed";
-          image.error = friendlyError(e);
-        } finally {
-          source?.bitmap.close();
-        }
-      }
-    } finally {
-      loading.value = false;
+    if (locked.value || disposed) return;
+    if (
+      definition?.inputMode === "multiple" &&
+      definition.maxImages !== undefined &&
+      images.value.length + files.length > definition.maxImages
+    ) {
+      error.value = `最多导入 ${definition.maxImages} 个文件，请减少本次选择数量。`;
+      return;
     }
+    error.value = "";
+    await workspace.add(files);
   }
   async function run(settings: OutputSettings, only?: ImageJob) {
     if (locked.value || disposed) return;
-    const targets = only ? [only] : [...pending.value];
+    const targets = only
+      ? [only]
+      : inputImages.value.filter((i) => pending.value.includes(i));
     if (!targets.length) return;
     const maxBytes =
       settings.sizeUnit === "none"
@@ -162,7 +178,9 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
         ...options,
         format: options.format === "original" ? source.format : options.format,
       };
-      return processImage(source, requested);
+      return settings.mode === "original"
+        ? convertImage(source, settings)
+        : processImage(source, requested);
     }, only);
   }
   async function runWithProcessor(
@@ -170,8 +188,14 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
     only?: ImageJob,
   ) {
     if (locked.value || disposed) return;
-    const targets = only ? [only] : [...pending.value];
+    const targets = only
+      ? [only]
+      : inputImages.value.filter((i) => pending.value.includes(i));
     if (!targets.length) return;
+    if (!only && inputError.value) {
+      error.value = inputError.value;
+      return;
+    }
     processing.value = true;
     error.value = "";
     completed.value = 0;
@@ -253,6 +277,10 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
   });
   return {
     images,
+    workspace,
+    inputImages,
+    inputError,
+    reorder,
     loading,
     processing,
     packing,
@@ -276,4 +304,7 @@ export function useImageBatch(zipName = "tidypic-images.zip") {
 
 export type ImageBatch = ReturnType<typeof useImageBatch>;
 
-export type ImageCollection = Pick<ImageBatch, "images" | "locked" | "add" | "remove" | "clear">;
+export type ImageCollection = Pick<
+  ImageBatch,
+  "images" | "locked" | "add" | "remove" | "clear"
+> & { reorder?: (ids: string[]) => void };

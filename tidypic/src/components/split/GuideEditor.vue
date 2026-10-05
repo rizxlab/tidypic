@@ -1,22 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import type { ImageJob } from "../../utils/image/types";
 const props = defineProps<{ image: ImageJob; disabled: boolean }>();
 const guides = defineModel<number[]>({ required: true });
-const url = ref(""),
+const url = computed(
+    () => props.image.sourcePreviewUrl || props.image.previewUrl,
+  ),
   area = ref<HTMLElement>(),
   error = ref("");
-watch(
-  () => props.image.originalFile,
-  (file) => {
-    if (url.value) URL.revokeObjectURL(url.value);
-    url.value = URL.createObjectURL(file);
-  },
-  { immediate: true },
-);
-onBeforeUnmount(() => {
-  URL.revokeObjectURL(url.value);
-});
 const sorted = computed(() =>
   guides.value.map((y, index) => ({ y, index })).sort((a, b) => a.y - b.y),
 );

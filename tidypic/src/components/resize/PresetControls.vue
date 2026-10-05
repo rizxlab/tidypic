@@ -10,6 +10,7 @@ import {
 import AppIcon from "../AppIcon.vue";
 const props = defineProps<{
   presets: ImagePresets;
+  userOnly?: boolean;
   disabled: boolean;
   invalid: boolean;
 }>();
@@ -141,27 +142,31 @@ defineExpose({ close });
         ><button aria-label="关闭预设选择器" @click="close(true)">×</button>
       </div>
       <template v-if="!platform">
-        <h3>常用预设</h3>
-        <button
-          v-for="p in commonPresets"
-          :key="p.id"
-          class="preset-option"
-          @click="apply(p)"
-        >
-          <span>{{ p.name }}</span
-          ><small>{{ p.summary }}</small>
-        </button>
-        <h3>电商平台</h3>
-        <button
-          v-for="p in platforms"
-          :key="p.id"
-          class="preset-option"
-          @click="platform = p.id"
-        >
-          <span>{{ p.name }}</span
-          ><span>›</span>
-        </button>
-        <p v-if="!platforms.length" class="field-note">暂无已核实的官方预设</p>
+        <template v-if="!userOnly">
+          <h3>常用预设</h3>
+          <button
+            v-for="p in commonPresets"
+            :key="p.id"
+            class="preset-option"
+            @click="apply(p)"
+          >
+            <span>{{ p.name }}</span
+            ><small>{{ p.summary }}</small>
+          </button>
+          <h3>电商平台</h3>
+          <button
+            v-for="p in platforms"
+            :key="p.id"
+            class="preset-option"
+            @click="platform = p.id"
+          >
+            <span>{{ p.name }}</span
+            ><span>›</span>
+          </button>
+          <p v-if="!platforms.length" class="field-note">
+            暂无已核实的官方预设
+          </p>
+        </template>
         <h3>我的预设</h3>
         <p v-if="!users.length" class="field-note">尚未保存预设</p>
         <div v-for="p in users" :key="p.id" class="user-preset-row">

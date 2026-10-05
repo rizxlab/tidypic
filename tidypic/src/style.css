@@ -1556,3 +1556,147 @@ input::-webkit-inner-spin-button {
   /* Avoid Safari automatically magnifying small form controls on focus. */
   input, select, textarea { font-size: 16px !important; }
 }
+
+.workflow-menu-item {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 14px !important;
+}
+.workflow-section {
+  margin-top: 20px;
+}
+.workflow-toolbar,
+.workflow-save {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.workflow-toolbar select {
+  max-width: 100%;
+  min-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.workflow-save {
+  margin: 12px 0;
+}
+.workflow-save .wm-field {
+  flex: 1;
+  min-width: 160px;
+}
+.workflow-list {
+  margin: 14px 0;
+}
+.workflow-row {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.workflow-step-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.workflow-number {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 0 0 24px;
+  text-align: center;
+}
+.workflow-number[data-status="success"] {
+  color: #24834d;
+}
+.workflow-number[data-status="error"] {
+  color: #bd3a3a;
+}
+.workflow-number[data-status="processing"] {
+  color: var(--accent);
+}
+.workflow-step-title {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+.workflow-step-title strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.workflow-step-title small {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.workflow-drag {
+  touch-action: none;
+  cursor: grab;
+  flex-shrink: 0;
+}
+.workflow-row.is-dragging {
+  background: var(--accent-soft);
+}
+.workflow-count,
+.workflow-row > .row-error {
+  margin: 6px 0 0 34px;
+}
+.workflow-editor {
+  margin: 14px 0 0 34px;
+  min-width: 0;
+}
+.workflow-editor .parameter-bar {
+  margin: 0;
+}
+.workflow-editor .preset-controls {
+  flex-wrap: wrap;
+}
+.workflow-editor .kind-tabs {
+  margin-bottom: 12px;
+}
+.workflow-add-panel {
+  padding: 12px 0;
+}
+.workflow-add-panel h3 {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 12px 0 6px;
+}
+.workflow-add-panel .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 14px 4px 0;
+}
+.workflow-action {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.workflow-action button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.workflow-empty {
+  margin: 18px 0;
+}
+@media (max-width: 600px) {
+  .workflow-editor {
+    margin-left: 0;
+  }
+  .workflow-toolbar {
+    gap: 10px;
+  }
+  .workflow-step-heading {
+    gap: 6px;
+  }
+  .workflow-editor .parameter-popover {
+    max-width: calc(100vw - 32px);
+  }
+}

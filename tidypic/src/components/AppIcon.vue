@@ -4,6 +4,7 @@ withDefaults(defineProps<{ name?: string; size?: number }>(), {
   size: 20,
 });
 const paths: Record<string, string> = {
+  workflow: "M4 3h6v6H4zM14 15h6v6h-6zM7 9v9h7M17 15V6h-7",
   rename: "M13 3H5v18h14V10M8 15l1-4 9-9 3 3-9 9-4 1M16 4l3 3",
   image:
     "M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM3 17l6-7 5 5 3-3 4 5M16 7h.01",

@@ -1,4 +1,5 @@
 import type {
+  ImageJob,
   ImageFormat,
   ImageSource,
   ImageResult,
@@ -13,8 +14,13 @@ export function friendlyError(error: unknown) {
     ? error.message
     : "图片处理失败，可能是内存不足或浏览器不支持。请尝试较小的图片。";
 }
-export async function readImage(file: File): Promise<ImageSource> {
-  if (file.size > 40 * 1024 * 1024)
+export async function readImage(
+  file: File,
+  options: { generated?: boolean } = {},
+): Promise<ImageSource> {
+  // Generated workflow files already passed import validation; their encoded
+  // size can grow after stitching/format changes. Pixel/decode checks still apply.
+  if (!options.generated && file.size > 40 * 1024 * 1024)
     throw new ImageError("图片超过 40 MB，请先选择一张较小的图片。");
   const bytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
   let format: ImageFormat;
@@ -145,9 +151,12 @@ export function formatBytes(bytes: number) {
 export function formatName(format: string) {
   return format === "image/jpeg" ? "JPG" : format.split("/")[1]?.toUpperCase();
 }
-export async function createThumbnail(source: ImageSource): Promise<Blob> {
+export async function createThumbnail(
+  source: ImageSource,
+  maxEdge = 96,
+): Promise<Blob> {
   const canvas = document.createElement("canvas");
-  const scale = Math.min(1, 96 / Math.max(source.width, source.height));
+  const scale = Math.min(1, maxEdge / Math.max(source.width, source.height));
   canvas.width = Math.max(1, Math.round(source.width * scale));
   canvas.height = Math.max(1, Math.round(source.height * scale));
   try {
@@ -166,5 +175,32 @@ export async function createThumbnail(source: ImageSource): Promise<Blob> {
   } finally {
     canvas.width = 0;
     canvas.height = 0;
+  }
+}
+
+/** Preview callers decode the shared reduced blob, never re-import the original File. */
+export async function readPreview(image: ImageJob, maxEdge: number) {
+  const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+  const options = {
+    resizeWidth: Math.max(1, Math.round(image.width * scale)),
+    resizeHeight: Math.max(1, Math.round(image.height * scale)),
+    resizeQuality: "high" as const,
+  };
+  if (image.sourcePreviewBlob)
+    return {
+      bitmap: await createImageBitmap(image.sourcePreviewBlob, options),
+      width: image.width,
+      height: image.height,
+    };
+  // Compatibility for callers supplying a standalone ImageJob outside a workspace.
+  const source = await readImage(image.originalFile);
+  try {
+    return {
+      bitmap: await createImageBitmap(source.bitmap, options),
+      width: source.width,
+      height: source.height,
+    };
+  } finally {
+    source.bitmap.close();
   }
 }

@@ -7,6 +7,8 @@ import type { TransformSettings } from "../../utils/image/transform/geometry";
 const model = defineModel<TransformSettings>({ required: true });
 defineProps<{
   presets: ImagePresets;
+  userOnly?: boolean;
+  embedded?: boolean;
   invalid: boolean;
   disabled: boolean;
   canRun: boolean;
@@ -112,6 +114,7 @@ const controls = computed(() => [
     <PresetControls
       ref="presetControls"
       :presets="presets"
+      :user-only="userOnly"
       :disabled="disabled"
       :invalid="invalid"
       @opening="close()"
@@ -346,6 +349,7 @@ const controls = computed(() => [
       </div>
     </fieldset>
     <button
+      v-if="!embedded"
       class="primary process-button"
       :disabled="disabled || !canRun"
       @click="

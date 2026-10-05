@@ -75,7 +75,7 @@ export function cropNeedsReset(
 }
 export function validateName(
   value: string,
-  presets: ImagePreset[],
+  presets: Pick<ImagePreset, "id" | "name">[],
   exceptId?: string,
 ) {
   const name = value.trim();

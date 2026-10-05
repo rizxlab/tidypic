@@ -4,7 +4,7 @@ import PreviewLightbox from "./PreviewLightbox.vue";
 import type { ImageJob } from "../utils/image/types";
 import type { WatermarkSettings } from "../utils/image/watermark/types";
 import { renderWatermark } from "../utils/image/watermark/draw";
-import { readImage, friendlyError } from "../utils/image/browser";
+import { readPreview, friendlyError } from "../utils/image/browser";
 const props = defineProps<{
   image?: ImageJob;
   settings: WatermarkSettings;
@@ -15,7 +15,9 @@ const canvas = ref<HTMLCanvasElement>(),
   message = ref(""),
   busy = ref(false);
 const lightbox = ref<InstanceType<typeof PreviewLightbox>>();
-const canEnlarge = computed(() => !!props.image?.width && !props.paused && !busy.value && !message.value);
+const canEnlarge = computed(
+  () => !!props.image?.width && !props.paused && !busy.value && !message.value,
+);
 function enlarge() {
   if (canEnlarge.value && canvas.value) lightbox.value?.open(canvas.value);
 }
@@ -53,22 +55,17 @@ async function update(token: number) {
     if (cached?.file !== file) {
       release();
       clearCanvas();
-      const source = await readImage(file);
-      try {
-        const ratio = Math.min(1, 1000 / Math.max(source.width, source.height));
-        const bitmap = await createImageBitmap(source.bitmap, {
-          resizeWidth: Math.max(1, Math.round(source.width * ratio)),
-          resizeHeight: Math.max(1, Math.round(source.height * ratio)),
-          resizeQuality: "high",
-        });
-        if (disposed || token !== revision) {
-          bitmap.close();
-          return;
-        }
-        cached = { file, bitmap, width: source.width, height: source.height };
-      } finally {
-        source.bitmap.close();
+      const preview = await readPreview(props.image, 1000);
+      if (disposed || token !== revision) {
+        preview.bitmap.close();
+        return;
       }
+      cached = {
+        file,
+        bitmap: preview.bitmap,
+        width: preview.width,
+        height: preview.height,
+      };
     }
     if (cached && canvas.value && !disposed && token === revision)
       renderWatermark(
@@ -143,7 +140,16 @@ defineExpose({ suspend });
       <span v-if="image" :title="image.filename">{{ image.filename }}</span>
     </div>
     <div class="watermark-stage" :aria-busy="busy">
-      <canvas ref="canvas" aria-label="放大水印预览" :role="canEnlarge ? 'button' : undefined" :tabindex="canEnlarge ? 0 : -1" :class="{ 'can-enlarge': canEnlarge }" @click="enlarge" @keydown.enter.prevent="enlarge" @keydown.space.prevent="enlarge"></canvas
+      <canvas
+        ref="canvas"
+        aria-label="放大水印预览"
+        :role="canEnlarge ? 'button' : undefined"
+        :tabindex="canEnlarge ? 0 : -1"
+        :class="{ 'can-enlarge': canEnlarge }"
+        @click="enlarge"
+        @keydown.enter.prevent="enlarge"
+        @keydown.space.prevent="enlarge"
+      ></canvas
       ><span v-if="message || busy" class="preview-message" role="status">{{
         busy ? "正在更新预览…" : message
       }}</span>

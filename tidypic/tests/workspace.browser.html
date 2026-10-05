@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>共享图片池与工具流验证</title>
+  <body>
+    <div style="padding: 16px">
+      <button id="run" class="secondary">运行共享图片池与工具流验证</button>
+      <p id="result" role="status">尚未运行</p>
+    </div>
+    <main id="fixture"></main>
+    <script type="module">
+      import { createApp, h, ref, nextTick } from "vue";
+      import { provideImageWorkspace } from "../src/composables/useImageWorkspace.ts";
+      import Resize from "../src/tools/ResizeWorkbench.vue";
+      import Convert from "../src/tools/ImageWorkbench.vue";
+      import Watermark from "../src/tools/WatermarkWorkbench.vue";
+      import Split from "../src/tools/SplitWorkbench.vue";
+      import Stitch from "../src/tools/StitchWorkbench.vue";
+      import Rename from "../src/tools/RenameWorkbench.vue";
+      import Workflow from "../src/tools/WorkflowWorkbench.vue";
+      import { defaultStep, moveStep } from "../src/utils/workflow/model.ts";
+      import { runWorkflow } from "../src/utils/workflow/runtime.ts";
+      import { processWorkflowStep } from "../src/processors/workflow.ts";
+      import { readImage } from "../src/utils/image/browser.ts";
+      import { createImageZip } from "../src/utils/image/download.ts";
+      import {
+        loadWorkflows,
+        saveWorkflows,
+      } from "../src/utils/workflow/storage.ts";
+      import "../src/style.css";
+      let pool;
+      const current = ref("resize");
+      const components = {
+        resize: Resize,
+        convert: Convert,
+        watermark: Watermark,
+        split: Split,
+        join: Stitch,
+        rename: Rename,
+        workflow: Workflow,
+      };
+      createApp({
+        setup() {
+          pool = provideImageWorkspace();
+          return () =>
+            h(components[current.value], {
+              key: current.value,
+              tool: "convert",
+            });
+        },
+      }).mount("#fixture");
+      const assert = (ok, msg) => {
+        if (!ok) throw Error(msg);
+      };
+      async function settle() {
+        for (let i = 0; pool.locked.value && i < 300; i++)
+          await new Promise((r) => setTimeout(r, 10));
+        assert(!pool.locked.value, "导入超时");
+        await nextTick();
+      }
+      async function picture(name) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 80;
+        canvas.height = 60;
+        canvas.getContext("2d").fillRect(0, 0, 80, 60);
+        const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+        return new File([blob], name, { type: "image/png" });
+      }
+      const input = () =>
+        pool.assets.value.map((a) => ({
+          file: a.file,
+          name: a.name,
+          width: a.width,
+          height: a.height,
+          format: a.format,
+        }));
+      document.querySelector("#run").onclick = async () => {
+        const passed = [];
+        const nativeRevoke = URL.revokeObjectURL;
+        const nativeBitmap = window.createImageBitmap;
+        let originals = [],
+          sourceDecodes = 0;
+        window.createImageBitmap = (...args) => {
+          if (originals.includes(args[0])) sourceDecodes++;
+          return nativeBitmap.apply(window, args);
+        };
+        const released = [];
+        URL.revokeObjectURL = (url) => {
+          released.push(url);
+          nativeRevoke.call(URL, url);
+        };
+        try {
+          pool.clear();
+          const files = await Promise.all(
+            ["A.png", "B.png", "C.png"].map(picture),
+          );
+          await pool.add(files);
+          await settle();
+          originals = files;
+          const originalUrls = pool.assets.value.flatMap((a) => [
+            a.objectUrl,
+            a.previewObjectUrl,
+          ]);
+          const refs = [...pool.assets.value];
+          for (const tool of [
+            "watermark",
+            "convert",
+            "split",
+            "join",
+            "rename",
+            "resize",
+          ]) {
+            current.value = tool;
+            await nextTick();
+            await new Promise((r) => setTimeout(r, 200));
+            assert(pool.assets.value.length === 3, tool + " 丢失图片");
+            pool.assets.value.forEach((a, i) =>
+              assert(a.file === files[i] && a === refs[i], tool + " 重建源图"),
+            );
+          }
+          assert(
+            originalUrls.every((url) => !released.includes(url)),
+            "切换工具提前释放源缩略图",
+          );
+          assert(sourceDecodes === 0, "工具切换重新读取原始 File");
+          passed.push(
+            "六工具保留3张原图、File/metadata身份、源URL生命周期、切换不重读原图",
+          );
+          window.createImageBitmap = nativeBitmap;
+          pool.activeId.value = refs[1].id;
+          current.value = "split";
+          await nextTick();
+          const selector = document.querySelector(
+            'select[aria-label="当前图片"]',
+          );
+          assert(
+            selector &&
+              selector.options.length === 3 &&
+              selector.value === refs[1].id,
+            "单图选择失败",
+          );
+          const runSplit = [...document.querySelectorAll("button")].find(
+            (b) => b.textContent.trim() === "开始切分",
+          );
+          runSplit.click();
+          await settle();
+          await new Promise((r) => setTimeout(r, 30));
+          assert(
+            document.querySelectorAll(".split-result-group").length === 1,
+            "切分处理多张源图",
+          );
+          assert(pool.assets.value.length === 3, "切分删除其他图");
+          passed.push("切分仅处理active B，图片池仍3张");
+          current.value = "resize";
+          await nextTick();
+          const runResize = [...document.querySelectorAll("button")].find(
+            (b) => b.textContent.trim() === "处理 3 张图片",
+          );
+          assert(runResize, "切回批量工具未恢复全部");
+          runResize.click();
+          await settle();
+          assert(
+            pool.assets.value.every((a, i) => a.file === files[i]),
+            "普通工具结果污染源图",
+          );
+          passed.push("普通工具处理结果隔离");
+          const join = defaultStep("join", "join"),
+            split = defaultStep("split", "split"),
+            mark = defaultStep("watermark", "mark"),
+            resize = defaultStep("resize", "resize"),
+            convert = defaultStep("convert", "convert"),
+            rename = defaultStep("rename", "rename");
+          split.settings.mode = "count";
+          split.settings.count = 5;
+          mark.settings.text = "SHOP";
+          resize.settings.sizeUnit = "none";
+          convert.settings.format = "image/webp";
+          const joined = await runWorkflow(
+            input(),
+            [join, split],
+            processWorkflowStep,
+          );
+          assert(
+            joined.images.length === 5 &&
+              joined.images.every((i) => i.width === 80 && i.height === 36),
+            "拼接→切分输出错误",
+          );
+          passed.push("真实拼接N→1→切分1→5");
+          const marked = await runWorkflow(
+            input(),
+            [resize, mark, convert, rename],
+            processWorkflowStep,
+          );
+          assert(
+            marked.images.length === 3 &&
+              marked.images.every(
+                (i) =>
+                  i.format === "image/webp" && i.file.type === "image/webp",
+              ),
+            "resize→watermark→convert输出错误",
+          );
+          assert(
+            marked.images.map((i) => i.name).join(",") ===
+              "01.webp,02.webp,03.webp",
+            "改名输出失败",
+          );
+          passed.push("真实resize→watermark→convert→rename N→N");
+          const splitMark = await runWorkflow(
+            [input()[0]],
+            [split, mark],
+            processWorkflowStep,
+          );
+          assert(splitMark.images.length === 5, "split→watermark失败");
+          passed.push("切分后多图水印");
+          const expanded = new File(
+            [files[0], new Uint8Array(40 * 1024 * 1024)],
+            "temporary.png",
+            { type: "image/png" },
+          );
+          let rejectedImport = false;
+          try {
+            await readImage(expanded);
+          } catch (e) {
+            rejectedImport = e.message.includes("40 MB");
+          }
+          assert(rejectedImport, "源图40MB限制被绕过");
+          const intermediate = await readImage(expanded, { generated: true });
+          assert(intermediate.width === 80, "生成文件解码失败");
+          intermediate.bitmap.close();
+          passed.push("源图40MB校验与生成文件解码分离");
+          const logoDataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(files[0]);
+          });
+          const imageMark = defaultStep("watermark", "image-mark");
+          imageMark.settings.kind = "image";
+          imageMark.settings.logoDataUrl = logoDataUrl;
+          const logoOutput = await runWorkflow(
+            input(),
+            [imageMark],
+            processWorkflowStep,
+          );
+          assert(logoOutput.images.length === 3, "图片水印处理失败");
+          passed.push("图片水印与logo bitmap释放");
+          const zip = await createImageZip(
+            splitMark.images.map((i) => ({ name: i.name, blob: i.file })),
+          );
+          const JSZip = (await import("jszip")).default;
+          const unpacked = await JSZip.loadAsync(zip);
+          assert(Object.keys(unpacked.files).length === 5, "ZIP文件数量错误");
+          passed.push("最终5图ZIP可解包");
+          assert(
+            pool.assets.value.length === 3 &&
+              pool.assets.value.every((a, i) => a.file === files[i]),
+            "工具流中间图污染源池",
+          );
+          passed.push("中间结果隔离");
+          let failed = false,
+            seen = [];
+          try {
+            await runWorkflow(
+              input(),
+              [resize, mark, convert],
+              async (i, s, c) => {
+                seen.push(s.type);
+                if (s.type === "watermark") throw Error("测试失败");
+                return processWorkflowStep(i, s, c);
+              },
+            );
+          } catch {
+            failed = true;
+          }
+          assert(failed && seen.join(",") === "resize,watermark", "失败未停止");
+          passed.push("失败立即停止后续步骤");
+          const ordered = moveStep([resize, convert, mark], "convert", 2);
+          const done = await runWorkflow(input(), ordered, processWorkflowStep);
+          assert(
+            done.states.map((s) => s.id).join(",") === "resize,mark,convert",
+            "排序执行错误",
+          );
+          passed.push("排序改变执行顺序");
+          const now = new Date().toISOString();
+          const record = {
+            id: "qa-temp",
+            name: "浏览器验证工具流",
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+            steps: [join, split],
+          };
+          const store = {
+            value: null,
+            getItem() {
+              return this.value;
+            },
+            setItem(k, v) {
+              this.value = v;
+            },
+          };
+          saveWorkflows(store, [record]);
+          assert(
+            JSON.stringify(loadWorkflows(store)[0].steps) ===
+              JSON.stringify(record.steps),
+            "保存恢复参数不一致",
+          );
+          passed.push("工作流保存/恢复");
+          pool.remove(refs[1].id);
+          current.value = "watermark";
+          await nextTick();
+          assert(
+            document.querySelector(".list-header h2").textContent.includes("2"),
+            "删除同步失败",
+          );
+          pool.clear();
+          current.value = "convert";
+          await nextTick();
+          assert(document.querySelector(".upload-zone"), "清空同步失败");
+          passed.push("删除与清空跨工具同步");
+          current.value = "workflow";
+          await nextTick();
+          document.querySelector("#result").textContent =
+            "全部通过：" + passed.join("；");
+        } catch (e) {
+          document.querySelector("#result").textContent =
+            "失败：" + e.message + "；已通过：" + passed.join("；");
+        } finally {
+          URL.revokeObjectURL = nativeRevoke;
+          window.createImageBitmap = nativeBitmap;
+        }
+      };
+    </script>
+  </body>
+</html>

@@ -11,11 +11,11 @@ import {
   resolveStitchFormat,
   validateStitchOutput,
 } from "../utils/image/stitch/geometry";
-import { encodeStitchedImage } from "../utils/image/stitch/browser";
+import { stitchImages } from "../processors/images";
 import { downloadBlob } from "../utils/image/download";
 import { friendlyError, formatBytes, formatName } from "../utils/image/browser";
 import type { ImageResult, ImageFormat } from "../utils/image/types";
-const batch = useImageBatch();
+const batch = useImageBatch("tidypic-images.zip", "join");
 const { images, locked, processing, error } = batch;
 const settings = ref(defaultStitchSettings()),
   preview = ref<InstanceType<typeof StitchPreview>>();
@@ -105,21 +105,18 @@ async function showResult() {
 }
 async function run() {
   if (!canRun.value) return;
-  const layout = layoutState.value.layout!,
-    options = { ...settings.value },
-    files = images.value.map((i) => i.originalFile),
-    outputFormat = format.value;
+  const options = { ...settings.value },
+    files = images.value.map((i) => i.originalFile);
   processing.value = true;
   error.value = "";
   clearResult();
   await preview.value?.suspend();
   try {
     if (disposed) return;
-    const output = await encodeStitchedImage(
+    const output = await stitchImages(
       files,
-      layout,
+      images.value,
       options,
-      outputFormat,
       () => disposed,
     );
     if (!disposed) {

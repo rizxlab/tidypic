@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import PreviewLightbox from "../PreviewLightbox.vue";
 import type { ImageJob } from "../../utils/image/types";
 import {
-  readImage,
+  readPreview,
   friendlyError,
   formatName,
 } from "../../utils/image/browser";
@@ -107,22 +107,12 @@ function load() {
   loading = loading.then(async () => {
     if (disposed || ticket !== version) return;
     try {
-      const source = await readImage(props.image.originalFile);
-      try {
-        const scale = Math.min(1, 1200 / Math.max(source.width, source.height));
-        const proxy = await createImageBitmap(source.bitmap, {
-          resizeWidth: Math.max(1, Math.round(source.width * scale)),
-          resizeHeight: Math.max(1, Math.round(source.height * scale)),
-          resizeQuality: "high",
-        });
-        if (disposed || ticket !== version) {
-          proxy.close();
-          return;
-        }
-        bitmap = proxy;
-      } finally {
-        source.bitmap.close();
+      const preview = await readPreview(props.image, 1200);
+      if (disposed || ticket !== version) {
+        preview.bitmap.close();
+        return;
       }
+      bitmap = preview.bitmap;
       draw();
     } catch (e) {
       if (ticket === version) error.value = friendlyError(e);

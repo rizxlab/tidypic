@@ -36,6 +36,8 @@ export interface ImageJob {
   originalSize: number;
   format?: ImageFormat;
   previewUrl: string;
+  sourcePreviewBlob?: Blob;
+  sourcePreviewUrl?: string;
   processingStatus: ProcessingStatus;
   resultBlob?: Blob;
   resultWidth?: number;
