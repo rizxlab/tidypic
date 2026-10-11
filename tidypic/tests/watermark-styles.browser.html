@@ -1,0 +1,145 @@
+<!doctype html><meta charset="utf-8" /><title>水印系统预设验证</title
+><button id="run">运行系统预设验证</button>
+<p id="result">尚未运行</p>
+<main id="fixture"></main>
+<script type="module">
+  import { createApp, h, nextTick } from "vue";
+  import Watermark from "../src/tools/WatermarkWorkbench.vue";
+  import { provideImageWorkspace } from "../src/composables/useImageWorkspace.ts";
+  import { watermarkStylePresets } from "../src/data/watermarkPresets.ts";
+  import {
+    WATERMARK_PRESET_KEY,
+    loadWatermarkPresets,
+  } from "../src/utils/presets/watermark.ts";
+  import "../src/style.css";
+  let pool;
+  createApp({
+    setup() {
+      pool = provideImageWorkspace();
+      return () => h(Watermark);
+    },
+  }).mount("#fixture");
+  const root = document.querySelector("#fixture"),
+    result = document.querySelector("#result");
+  const assert = (ok, msg) => {
+    if (!ok) throw Error(msg);
+  };
+  async function settle() {
+    await nextTick();
+    await new Promise((r) => setTimeout(r, 260));
+    await nextTick();
+  }
+  const button = (name) =>
+    [...root.querySelectorAll("button")].find(
+      (b) => b.textContent.trim() === name,
+    );
+  async function choose(name) {
+    root.querySelector(".preset-trigger").click();
+    await nextTick();
+    button(name).click();
+    await settle();
+  }
+  async function image(name, size, color) {
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    c.getContext("2d").fillStyle = color;
+    c.getContext("2d").fillRect(0, 0, size, size);
+    return new File(
+      [await new Promise((r) => c.toBlob(r, "image/png"))],
+      name,
+      { type: "image/png" },
+    );
+  }
+  document.querySelector("#run").onclick = async () => {
+    const backup = localStorage.getItem(WATERMARK_PRESET_KEY);
+    try {
+      result.textContent = "验证中";
+      await pool.add([await image("source.png", 400, "#777777")]);
+      await settle();
+      const text = root.querySelector('input[aria-label="水印文字"]');
+      text.value = "@阿煦的小店";
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+      const previews = [];
+      for (const p of watermarkStylePresets) {
+        await choose(p.name);
+        assert(text.value === "@阿煦的小店", "文字被修改");
+        previews.push(root.querySelector("canvas").toDataURL());
+        assert(
+          localStorage.getItem(WATERMARK_PRESET_KEY) === backup,
+          "系统预设写入用户存储",
+        );
+      }
+      assert(new Set(previews).size === 5, "五个预设的文字预览必须不同");
+      button("保存当前设置").click();
+      await settle();
+      const dialog = document.querySelector("dialog[open]"),
+        input = dialog.querySelector("input");
+      input.value = "QA-style-" + crypto.randomUUID().slice(0, 8);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      dialog
+        .querySelector("form")
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      await settle();
+      const saved = loadWatermarkPresets(localStorage).find(
+        (p) => p.name === input.value,
+      );
+      assert(saved, "样式另存为我的预设");
+      await choose("轻水印");
+      await choose(saved.name);
+      assert(
+        root.querySelector(".preset-trigger").textContent.trim() === saved.name,
+        "自定义预设恢复",
+      );
+      button("图片水印").click();
+      await nextTick();
+      const logoInput = root.querySelector('input[aria-label="选择水印图片"]'),
+        dt = new DataTransfer();
+      dt.items.add(await image("logo.png", 32, "#111111"));
+      logoInput.files = dt.files;
+      logoInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+      const logoUrl = root.querySelector(".logo-thumb img").src;
+      const imagePreviews = [];
+      for (const p of watermarkStylePresets) {
+        await choose(p.name);
+        assert(
+          root.querySelector(".logo-thumb img").src === logoUrl,
+          "上传素材URL改变",
+        );
+        assert(
+          root.querySelector(".logo-info .filename").textContent === "logo.png",
+          "素材名称改变",
+        );
+        assert(
+          !root.querySelector('input[aria-label="水印文字"]'),
+          "内容类型被改变",
+        );
+        imagePreviews.push(root.querySelector("canvas").toDataURL());
+      }
+      assert(new Set(imagePreviews).size === 5, "五个预设的图片预览必须不同");
+      root
+        .querySelector('.wm-parameter-bar button[aria-label^="透明度"]')
+        .click();
+      await nextTick();
+      const opacity = root.querySelector('input[type="range"]');
+      opacity.value = "30";
+      opacity.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+      assert(
+        root.querySelector(".preset-trigger").textContent.includes("已修改"),
+        "手动修改后的状态",
+      );
+      result.textContent =
+        "全部通过：五种文字与图片实时预览各不相同；文字、内容类型及上传素材URL/名称保留；系统预设不写入我的预设；另存、应用自定义预设及已修改状态正常。";
+    } catch (e) {
+      result.textContent = "失败：" + e.message;
+      console.error(e);
+    } finally {
+      if (backup === null) localStorage.removeItem(WATERMARK_PRESET_KEY);
+      else localStorage.setItem(WATERMARK_PRESET_KEY, backup);
+    }
+  };
+</script>

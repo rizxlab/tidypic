@@ -60,6 +60,24 @@
       canvas.width = 16;
       canvas.height = 16;
       canvas.getContext("2d").fillRect(0, 0, 16, 16);
+      for (const mime of ["image/png", "image/jpeg", "image/webp"]) {
+        const encoded = await new Promise((r) => canvas.toBlob(r, mime));
+        const persisted = await presetLogo(
+          new File([encoded], "logo", { type: "" }),
+        );
+        const restored = applyWatermarkPreset({
+          id: "format",
+          name: "format",
+          type: "user",
+          version: 1,
+          createdAt: new Date().toISOString(),
+          settings: { ...defaultWatermarkSettings(), kind: "image" },
+          logo: persisted,
+        });
+        const decoded = await readImage(restored.logo);
+        check(decoded.format === mime, "素材 MIME 根据内容恢复 " + mime);
+        decoded.bitmap.close();
+      }
       const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
       const file = new File([blob], "QA-logo.png", { type: "image/png" });
       button("图片水印").click();

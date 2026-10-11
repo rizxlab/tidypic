@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { watermarkStylePresets } from "../data/watermarkPresets";
 import PresetControls from "../components/resize/PresetControls.vue";
 import { useWatermarkPresets } from "../composables/useWatermarkPresets";
 import WatermarkContent from "../components/watermark/WatermarkContent.vue";
@@ -201,7 +202,22 @@ onBeforeUnmount(() => {
         user-only
         :disabled="controlsLocked"
         :invalid="!valid"
-      />
+      >
+        <template #system-presets="{ close }">
+          <h3>系统预设</h3>
+          <button
+            v-for="p in watermarkStylePresets"
+            :key="p.id"
+            class="preset-option"
+            @click="
+              presets.applySystem(p);
+              close(true);
+            "
+          >
+            <span>{{ p.name }}</span>
+          </button>
+        </template>
+      </PresetControls>
       <fieldset :disabled="controlsLocked">
         <WatermarkContent v-model="settings" :disabled="controlsLocked"
           ><template #image>

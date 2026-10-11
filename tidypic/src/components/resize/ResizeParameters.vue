@@ -137,8 +137,14 @@ const controls = computed(() => [
           :aria-expanded="open === control.key"
           @click="toggle(control.key, $event)"
         >
-          <span>{{ control.label }}：{{ control.value }}</span
-          ><AppIcon name="chevron" :size="14" />
+          <span>{{
+            embedded || !['dimensions', 'size', 'format'].includes(control.key)
+              ? `${control.label}：${control.value}`
+              : control.key === 'size' && control.value === '不限制'
+                ? '文件大小不限'
+                : control.value
+          }}</span>
+          <AppIcon name="chevron" :size="14" />
         </button>
         <div
           v-if="open === control.key"
@@ -307,7 +313,7 @@ const controls = computed(() => [
                 class="size-limit-number"
                 :class="{ disabled: model.sizeUnit === 'none' }"
               >
-                <span>不超过</span>
+                <span v-if="embedded">不超过</span>
                 <input
                   id="resize-size-limit"
                   v-model.number="model.sizeLimit"

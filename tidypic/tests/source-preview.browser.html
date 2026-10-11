@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>原图预览验证</title>
+  <body>
+    <button id="run">运行原图预览验证</button>
+    <p id="result">尚未运行</p>
+    <button id="show">打开长图供响应式检查</button>
+    <main id="fixture"></main>
+    <script type="module">
+      import { createApp, h, ref, nextTick } from "vue";
+      import { provideImageWorkspace } from "../src/composables/useImageWorkspace.ts";
+      import Resize from "../src/tools/ResizeWorkbench.vue";
+      import Convert from "../src/tools/ImageWorkbench.vue";
+      import Watermark from "../src/tools/WatermarkWorkbench.vue";
+      import Split from "../src/tools/SplitWorkbench.vue";
+      import Stitch from "../src/tools/StitchWorkbench.vue";
+      import Rename from "../src/tools/RenameWorkbench.vue";
+      import Workflow from "../src/tools/WorkflowWorkbench.vue";
+      import "../src/style.css";
+      let pool;
+      const current = ref("resize");
+      const components = {
+        resize: Resize,
+        convert: Convert,
+        watermark: Watermark,
+        split: Split,
+        join: Stitch,
+        rename: Rename,
+        workflow: Workflow,
+      };
+      createApp({
+        setup() {
+          pool = provideImageWorkspace();
+          return () =>
+            h(components[current.value], {
+              key: current.value,
+              ...(current.value === "convert" ? { tool: "convert" } : {}),
+            });
+        },
+      }).mount("#fixture");
+      const assert = (ok, msg) => {
+        if (!ok) throw Error(msg);
+      };
+      const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+      async function settle() {
+        for (let i = 0; pool.locked.value && i < 500; i++) await pause(10);
+        assert(!pool.locked.value, "导入/处理超时");
+        await nextTick();
+        await pause(80);
+      }
+      async function picture(name, w = 320, height = 240, color = "red") {
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = height;
+        c.getContext("2d").fillStyle = color;
+        c.getContext("2d").fillRect(0, 0, w, height);
+        return new File([await new Promise((r) => c.toBlob(r))], name, {
+          type: "image/png",
+        });
+      }
+      const rows = () => [...document.querySelectorAll(".file-preview")];
+      const dialog = () => document.querySelector("dialog[open]");
+      async function opened(name) {
+        await nextTick();
+        for (let i = 0; i < 100; i++) {
+          const img = dialog()?.querySelector(".lightbox-image");
+          if (img?.complete && img.naturalWidth) {
+            assert(img.alt === name, "错误图片 " + img.alt);
+            return img;
+          }
+          await pause(10);
+        }
+        throw Error("大图加载超时");
+      }
+      async function close() {
+        dialog().querySelector(".lightbox-close").click();
+        await nextTick();
+        await pause(20);
+        assert(!dialog(), "关闭失败");
+      }
+      const textButton = (text) =>
+        [...document.querySelectorAll("button")].find(
+          (b) => b.textContent.trim() === text,
+        );
+      document.querySelector("#show").onclick = () =>
+        rows()
+          .find((r) => r.textContent.includes("A-long.png"))
+          .click();
+      document.querySelector("#run").onclick = async () => {
+        const passed = [];
+        const revoke = URL.revokeObjectURL,
+          create = URL.createObjectURL;
+        const released = [],
+          allocated = [];
+        URL.revokeObjectURL = (url) => {
+          released.push(url);
+          revoke.call(URL, url);
+        };
+        URL.createObjectURL = (blob) => {
+          const url = create.call(URL, blob);
+          allocated.push({ blob, url });
+          return url;
+        };
+        try {
+          pool.clear();
+          const files = await Promise.all([
+            picture("A-long.png", 1536, 8000),
+            picture("B.png", 320, 240, "green"),
+            picture("C.png", 640, 320, "blue"),
+            picture("D.png", 400, 400, "purple"),
+          ]);
+          await pool.add(files);
+          await settle();
+          const assets = [...pool.assets.value],
+            originalUrls = assets.flatMap((a) => [
+              a.objectUrl,
+              a.previewObjectUrl,
+            ]);
+          rows()[2].querySelector(".filename").click();
+          let img = await opened("C.png");
+          assert(
+            img.naturalWidth === 640 && img.naturalHeight === 320,
+            "使用了缩略图",
+          );
+          assert(dialog().textContent.includes("3 / 4"), "没有3/4");
+          assert(
+            allocated.filter((a) => files.includes(a.blob)).length === 1,
+            "提前为未浏览原图创建URL",
+          );
+          dialog().querySelector('[aria-label="上一张"]').click();
+          await opened("B.png");
+          dialog().querySelector('[aria-label="下一张"]').click();
+          await opened("C.png");
+          dialog().querySelector('[aria-label="下一张"]').click();
+          await opened("D.png");
+          const owned = allocated
+            .filter((a) => files.includes(a.blob))
+            .map((a) => a.url);
+          await close();
+          assert(
+            owned.every((u) => released.includes(u)),
+            "原图临时URL未释放",
+          );
+          assert(document.activeElement === rows()[2], "关闭未恢复焦点");
+          passed.push(
+            "C直接3/4、原始分辨率、上一张/下一张、按需URL及关闭清理/焦点",
+          );
+          for (const tool of Object.keys(components)) {
+            current.value = tool;
+            await nextTick();
+            await pause(200);
+            rows()[0].querySelector(".thumbnail").click();
+            img = await opened("A-long.png");
+            assert(
+              img.naturalWidth === 1536 && img.naturalHeight === 8000,
+              tool + "不是完整原图",
+            );
+            await close();
+            rows()[1].querySelector(".file-meta").click();
+            await opened("B.png");
+            await close();
+            assert(
+              pool.assets.value.every(
+                (a, i) => a === assets[i] && a.file === files[i],
+              ),
+              tool + "改变图片池",
+            );
+          }
+          assert(
+            originalUrls.every((u) => !released.includes(u)),
+            "提前释放图片池URL",
+          );
+          passed.push("七工具缩略图/文件信息原图预览、切换保留File和URL");
+          current.value = "split";
+          pool.activeId.value = assets[0].id;
+          await nextTick();
+          rows()[2].click();
+          await opened("C.png");
+          assert(pool.activeId.value === assets[0].id, "预览改变当前处理图片");
+          await close();
+          document.querySelectorAll(".source-select")[1].click();
+          await nextTick();
+          assert(
+            pool.activeId.value === assets[1].id && !dialog(),
+            "独立选择触发预览或未选择",
+          );
+          pool.activeId.value = assets[0].id;
+          await nextTick();
+          textButton("开始切分").click();
+          await settle();
+          const resultButtons = [
+            ...document.querySelectorAll(".split-result-group .split-thumb"),
+          ];
+          assert(resultButtons.length > 1, "未产生切片");
+          resultButtons[1].click();
+          await nextTick();
+          const resultImg = dialog().querySelector("img");
+          await opened(resultImg.alt);
+          assert(
+            resultImg.naturalHeight <= 1200 && resultImg.naturalWidth === 1536,
+            "不是切片结果",
+          );
+          assert(
+            dialog().textContent.includes("2 / " + resultButtons.length),
+            "切片集合计数错误",
+          );
+          const borrowed = resultImg.src;
+          dialog().querySelector('[aria-label="下一张"]').click();
+          await nextTick();
+          await close();
+          assert(!released.includes(borrowed), "预览释放结果URL");
+          rows()[0].click();
+          img = await opened("A-long.png");
+          assert(img.naturalHeight === 8000, "结果替代原图");
+          await close();
+          passed.push(
+            "切分完整原图+结果独立集合及翻页、预览不改变active、选择独立",
+          );
+          current.value = "watermark";
+          await nextTick();
+          const textInput = document.querySelector(
+            'input[placeholder="@自己的店铺"]',
+          );
+          assert(textInput, "水印文字输入不存在");
+          textInput.value = "SHOP";
+          textInput.dispatchEvent(new Event("input", { bubbles: true }));
+          await pause(500);
+          rows()[0].click();
+          img = await opened("A-long.png");
+          const bitmap = await createImageBitmap(
+            await (await fetch(img.src)).blob(),
+          );
+          const sample = document.createElement("canvas");
+          sample.width = sample.height = 1;
+          sample.getContext("2d").drawImage(bitmap, 0, 0, 1, 1);
+          bitmap.close();
+          assert(
+            sample.getContext("2d").getImageData(0, 0, 1, 1).data[0] === 255,
+            "水印源图内容改变",
+          );
+          await close();
+          const canvasOpener = document.querySelector(
+            ".watermark-stage canvas.can-enlarge",
+          );
+          assert(canvasOpener, "水印实时Canvas不可预览");
+          if (canvasOpener) {
+            canvasOpener.click();
+            await nextTick();
+            assert(
+              dialog()?.querySelector("canvas")?.width > 0,
+              "水印Canvas预览失效",
+            );
+            await close();
+          }
+          passed.push("水印上传预览为原始File/无水印、原有实时Canvas大图");
+          current.value = "join";
+          await nextTick();
+          await pause(200);
+          const handle = document.querySelector(".stitch-drag");
+          handle.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          );
+          await nextTick();
+          assert(
+            pool.assets.value[1] === assets[0] && !dialog(),
+            "排序错误/误开预览",
+          );
+          rows()[1].click();
+          await opened("A-long.png");
+          assert(dialog().textContent.includes("2 / 4"), "排序后顺序错误");
+          await close();
+          const targetRow = document.querySelectorAll(".file-row")[0];
+          targetRow.scrollIntoView({ block: "center" });
+          const rect = targetRow.getBoundingClientRect();
+          const drag = document.querySelectorAll(".stitch-drag")[1];
+          drag.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              clientX: rect.x + 20,
+              clientY: rect.y + rect.height + 10,
+            }),
+          );
+          window.dispatchEvent(
+            new PointerEvent("pointermove", {
+              clientX: rect.x + 20,
+              clientY: rect.y + rect.height / 2,
+            }),
+          );
+          window.dispatchEvent(new PointerEvent("pointerup"));
+          await nextTick();
+          assert(
+            pool.assets.value[0] === assets[0] && !dialog(),
+            "拖拽排序误触预览",
+          );
+          await pause(600);
+          document.querySelector(".stitch-stage canvas").click();
+          await nextTick();
+          assert(
+            dialog()?.querySelector("canvas")?.width > 0,
+            "拼接实时Canvas预览失效",
+          );
+          await close();
+          textButton("开始拼接").click();
+          await settle();
+          document.querySelector(".stitch-result-thumb").click();
+          for (
+            let i = 0;
+            !dialog()?.querySelector("canvas")?.width && i < 200;
+            i++
+          )
+            await pause(10);
+          await nextTick();
+          assert(
+            dialog()?.querySelector("canvas")?.width > 0,
+            "拼接结果Canvas预览失效",
+          );
+          await close();
+          passed.push("拼接指针拖拽、实时预览、完成图Canvas预览");
+          const remove = document.querySelectorAll(
+            ".file-row .remove-button",
+          )[1];
+          assert(remove, "无删除按钮");
+          remove.click();
+          await nextTick();
+          assert(pool.assets.value.length === 3 && !dialog(), "删除触发预览");
+          passed.push("拼接排序、排序后预览顺序、删除独立");
+          current.value = "resize";
+          await nextTick();
+          for (const key of ["Enter", " "]) {
+            rows()[0].focus();
+            rows()[0].dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key,
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+            await opened(pool.assets.value[0].name);
+            dialog().dispatchEvent(new Event("cancel", { cancelable: true }));
+            await nextTick();
+            await pause(20);
+            assert(
+              !dialog() && document.activeElement === rows()[0],
+              "键盘关闭/焦点失败",
+            );
+          }
+          passed.push("Enter/Space打开、dialog取消关闭和焦点恢复");
+          for (const a of [...pool.assets.value].slice(1)) pool.remove(a.id);
+          await nextTick();
+          rows()[0].click();
+          await opened(pool.assets.value[0].name);
+          assert(
+            !dialog().querySelector(".lightbox-navigation"),
+            "单图仍显示导航",
+          );
+          await close();
+          passed.push("单图隐藏无意义导航");
+          rows()[0].click();
+          const unmountUrl = (await opened(pool.assets.value[0].name)).src;
+          current.value = "convert";
+          await nextTick();
+          await pause(20);
+          assert(
+            !dialog() && released.includes(unmountUrl),
+            "卸载未释放预览URL",
+          );
+          rows()[0].click();
+          await opened(pool.assets.value[0].name);
+          await close();
+          passed.push("打开中切换工具释放预览资源、重新打开成功");
+          document.querySelector("#result").textContent =
+            "全部通过：" + passed.join("；");
+        } catch (e) {
+          document.querySelector("#result").textContent =
+            "失败：" + e.message + "；已通过：" + passed.join("；");
+          console.error(e);
+        } finally {
+          URL.revokeObjectURL = revoke;
+          URL.createObjectURL = create;
+        }
+      };
+    </script>
+  </body>
+</html>

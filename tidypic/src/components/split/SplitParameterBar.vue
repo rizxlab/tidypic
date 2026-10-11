@@ -39,7 +39,7 @@ const panels = computed(() => [
       ]),
   {
     id: "format",
-    label: `格式：${formats.find((f) => f[0] === model.value.format)![1]}`,
+    label: formats.find((f) => f[0] === model.value.format)![1],
   },
 ]);
 function close(focus = false) {

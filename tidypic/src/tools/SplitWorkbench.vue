@@ -12,7 +12,7 @@ import {
   type SplitSettings,
 } from "../utils/image/split/geometry";
 import { splitImage } from "../processors/images";
-import { ImageError, formatBytes, readImage } from "../utils/image/browser";
+import { ImageError, formatBytes } from "../utils/image/browser";
 import { downloadBlob, createImageZip } from "../utils/image/download";
 import type { ImageFormat, ImageResult, ImageJob } from "../utils/image/types";
 const batch = useImageBatch("tidypic-images.zip", "split");
@@ -35,7 +35,6 @@ const allResults = computed(() =>
   images.value.flatMap((i) => results.value[i.id] || []),
 );
 let disposed = false;
-let previewing = false;
 function clearResults(id?: string) {
   for (const key of id ? [id] : Object.keys(results.value)) {
     results.value[key]?.forEach((r) => URL.revokeObjectURL(r.url));
@@ -146,29 +145,17 @@ async function downloadAll() {
     packing.value = false;
   }
 }
-async function preview(result: Output) {
-  if (previewing || disposed) return;
-  previewing = true;
-  try {
-    const source = await readImage(new File([result.blob], result.name));
-    const canvas = document.createElement("canvas");
-    try {
-      const scale = Math.min(1, 1600 / Math.max(source.width, source.height));
-      canvas.width = Math.max(1, Math.round(source.width * scale));
-      canvas.height = Math.max(1, Math.round(source.height * scale));
-      canvas
-        .getContext("2d")!
-        .drawImage(source.bitmap, 0, 0, canvas.width, canvas.height);
-      if (!disposed) lightbox.value?.open(canvas);
-    } finally {
-      source.bitmap.close();
-      canvas.width = canvas.height = 0;
-    }
-  } catch {
-    if (!disposed) error.value = "无法打开切片预览，请尝试下载查看。";
-  } finally {
-    previewing = false;
-  }
+function preview(result: Output) {
+  if (disposed) return;
+  const items = allResults.value;
+  lightbox.value?.openImages(
+    items.map((item, index) => ({
+      id: String(index),
+      name: item.name,
+      url: item.url,
+    })),
+    items.indexOf(result),
+  );
 }
 onBeforeUnmount(() => {
   disposed = true;

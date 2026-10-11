@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import PreviewLightbox from "./PreviewLightbox.vue";
 import AppIcon from "./AppIcon.vue";
 import type { ImageCollection } from "../composables/useImageBatch";
 import type { ImageJob, ProcessingStatus } from "../utils/image/types";
@@ -19,12 +20,31 @@ const { images, locked } = props.batch;
 const input = ref<HTMLInputElement>(),
   dragging = ref(false);
 const surface = ref<HTMLElement>();
+const lightbox = ref<InstanceType<typeof PreviewLightbox>>();
+const sourceImages = computed(() =>
+  images.value
+    .filter((image) => image.width && image.height)
+    .map((image) => ({
+      id: image.id,
+      name: image.filename,
+      blob: image.originalFile,
+    })),
+);
+function preview(image: ImageJob, event: Event) {
+  const at = sourceImages.value.findIndex((item) => item.id === image.id);
+  if (at >= 0) {
+    if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
+    lightbox.value?.openImages(sourceImages.value, at);
+  }
+}
 let unregisterPaste: (() => void) | undefined;
 onMounted(() => {
   unregisterPaste = registerImagePaste(surface.value!.ownerDocument, {
     element: () => surface.value,
     enabled: () => !locked.value && !props.disabled,
-    add: (files) => { void upload(files); },
+    add: (files) => {
+      void upload(files);
+    },
   });
 });
 onBeforeUnmount(() => unregisterPaste?.());
@@ -88,7 +108,11 @@ function select(image: ImageJob) {
       >
         <span aria-hidden="true">＋</span>选择图片
       </button>
-      <p class="upload-help"><span class="paste-hint">也可直接 Ctrl/⌘ + V 粘贴图片</span><span class="paste-hint-mobile">支持直接粘贴图片</span><br />JPG / PNG / WebP · 单张最大 40MB</p>
+      <p class="upload-help">
+        <span class="paste-hint">也可直接 Ctrl/⌘ + V 粘贴图片</span
+        ><span class="paste-hint-mobile">支持直接粘贴图片</span><br />JPG / PNG
+        / WebP · 单张最大 40MB
+      </p>
     </div>
     <template v-else>
       <div class="list-header">
@@ -118,46 +142,63 @@ function select(image: ImageJob) {
           :data-image-id="image.id"
           :class="{
             'preview-selected': selectable && selectedId === image.id,
-            'preview-selectable': selectable,
           }"
-          @click="select(image)"
         >
           <slot name="row-start" :image="image" />
-          <slot name="thumbnail" :image="image">
-            <div class="thumbnail">
-              <img
-                v-if="image.previewUrl"
-                :src="image.previewUrl"
-                alt=""
-              /><AppIcon v-else :size="19" />
+          <button
+            v-if="selectable"
+            class="icon-button source-select"
+            :aria-label="`选择 ${image.filename} 作为当前图片`"
+            :aria-pressed="selectedId === image.id"
+            :disabled="locked || disabled || !image.width"
+            @click.stop="select(image)"
+          >
+            <AppIcon
+              v-if="selectedId === image.id"
+              name="check"
+              :size="16"
+            /><span
+              v-else
+              class="source-select-circle"
+              aria-hidden="true"
+            ></span>
+          </button>
+          <div
+            class="file-preview"
+            role="button"
+            :tabindex="image.width ? 0 : -1"
+            :aria-label="`预览原图 ${image.filename}`"
+            :aria-disabled="!image.width"
+            @click.stop="preview(image, $event)"
+            @keydown.enter.stop.prevent="preview(image, $event)"
+            @keydown.space.stop.prevent="preview(image, $event)"
+          >
+            <slot name="thumbnail" :image="image">
+              <div class="thumbnail">
+                <img
+                  v-if="image.previewUrl"
+                  :src="image.previewUrl"
+                  alt=""
+                /><AppIcon v-else :size="19" />
+              </div>
+            </slot>
+            <div class="file-info">
+              <span class="filename" :title="image.filename">{{
+                image.filename
+              }}</span>
+              <span class="file-meta"
+                ><template v-if="image.width"
+                  >{{ image.width }} × {{ image.height }}
+                  <span class="meta-separator">·</span> </template
+                >{{ formatBytes(image.originalSize)
+                }}<template v-if="image.format">
+                  <span class="meta-separator">·</span>
+                  {{ formatName(image.format) }}</template
+                ></span
+              >
+              <slot name="row-notice" :image="image" />
+              <p v-if="image.error" class="row-error">{{ image.error }}</p>
             </div>
-          </slot>
-          <div class="file-info">
-            <button
-              v-if="selectable"
-              class="filename preview-select"
-              :title="image.filename"
-              :aria-label="`预览 ${image.filename}`"
-              :aria-pressed="selectedId === image.id"
-              :disabled="locked || disabled || !image.width"
-              @click.stop="select(image)"
-            >
-              {{ image.filename }}</button
-            ><span v-else class="filename" :title="image.filename">{{
-              image.filename
-            }}</span
-            ><span class="file-meta"
-              ><template v-if="image.width"
-                >{{ image.width }} × {{ image.height }}
-                <span class="meta-separator">·</span> </template
-              >{{ formatBytes(image.originalSize)
-              }}<template v-if="image.format">
-                <span class="meta-separator">·</span>
-                {{ formatName(image.format) }}</template
-              ></span
-            >
-            <slot name="row-notice" :image="image" />
-            <p v-if="image.error" class="row-error">{{ image.error }}</p>
           </div>
           <slot name="row-actions" :image="image" />
           <span class="file-status" :class="image.processingStatus"
@@ -195,4 +236,5 @@ function select(image: ImageJob) {
       </div>
     </template>
   </section>
+  <PreviewLightbox ref="lightbox" label="原图预览" />
 </template>

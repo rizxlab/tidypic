@@ -162,6 +162,7 @@ defineExpose({ close });
         ><button aria-label="关闭预设选择器" @click="close(true)">×</button>
       </div>
       <template v-if="!platform">
+        <slot name="system-presets" :close="close" />
         <template v-if="!userOnly">
           <h3>常用预设</h3>
           <button
