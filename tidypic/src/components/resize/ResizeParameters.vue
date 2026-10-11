@@ -2,6 +2,12 @@
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import PresetControls from "./PresetControls.vue";
 import type { ImagePresets } from "../../composables/useImagePresets";
+import {
+  changeSizeUnit,
+  sizeShortcuts,
+  selectSizeShortcut,
+  isSizeShortcut,
+} from "../../utils/image/sizeLimit";
 import AppIcon from "../AppIcon.vue";
 import type { TransformSettings } from "../../utils/image/transform/geometry";
 const model = defineModel<TransformSettings>({ required: true });
@@ -15,7 +21,7 @@ defineProps<{
   actionLabel: string;
 }>();
 const emit = defineEmits<{ run: [] }>();
-const presetControls = ref<InstanceType<typeof PresetControls>>();
+const presetControls = ref<{ close: (focus?: boolean) => void }>();
 const open = ref(""),
   root = ref<HTMLElement>();
 let trigger: HTMLElement | undefined;
@@ -89,7 +95,7 @@ const controls = computed(() => [
     label: "大小",
     value:
       model.value.sizeUnit === "none"
-        ? "不限"
+        ? "不限制"
         : `≤${model.value.sizeLimit}${model.value.sizeUnit}`,
   },
   {
@@ -294,40 +300,51 @@ const controls = computed(() => [
                   model.background = ($event.target as HTMLInputElement).value
                 " /></label
           ></template>
-          <template v-else-if="control.key === 'size'"
-            ><label class="wm-field"
-              >文件大小<select v-model="model.sizeUnit">
-                <option value="none">不限制</option>
+          <template v-else-if="control.key === 'size'">
+            <label class="wm-field" for="resize-size-limit">文件大小上限</label>
+            <div class="size-limit-row">
+              <div
+                class="size-limit-number"
+                :class="{ disabled: model.sizeUnit === 'none' }"
+              >
+                <span>不超过</span>
+                <input
+                  id="resize-size-limit"
+                  v-model.number="model.sizeLimit"
+                  type="number"
+                  min="0.001"
+                  step="any"
+                  aria-label="文件大小上限"
+                  :disabled="model.sizeUnit === 'none'"
+                />
+              </div>
+              <select
+                :value="model.sizeUnit === 'none' ? 'KB' : model.sizeUnit"
+                aria-label="文件大小单位"
+                :disabled="model.sizeUnit === 'none'"
+                @change="
+                  changeSizeUnit(
+                    model,
+                    ($event.target as HTMLSelectElement).value as 'KB' | 'MB',
+                  )
+                "
+              >
                 <option value="KB">KB</option>
                 <option value="MB">MB</option>
-              </select></label
-            ><label v-if="model.sizeUnit !== 'none'" class="wm-field"
-              >不超过<input
-                v-model.number="model.sizeLimit"
-                type="number"
-                min="0.001"
-                step="any"
-                aria-label="文件大小上限"
-            /></label>
-            <div class="split-presets">
+              </select>
+            </div>
+            <div class="split-presets size-shortcuts">
               <button
-                v-for="n in [100, 200, 500]"
-                @click="
-                  model.sizeUnit = 'KB';
-                  model.sizeLimit = n;
-                "
+                v-for="shortcut in sizeShortcuts"
+                :key="shortcut.label"
+                :class="{ active: isSizeShortcut(model, shortcut) }"
+                :aria-pressed="isSizeShortcut(model, shortcut)"
+                @click="selectSizeShortcut(model, shortcut)"
               >
-                {{ n }}KB</button
-              ><button
-                @click="
-                  model.sizeUnit = 'MB';
-                  model.sizeLimit = 1;
-                "
-              >
-                1MB
+                {{ shortcut.label }}
               </button>
-            </div></template
-          >
+            </div>
+          </template>
           <div v-else class="radio-list">
             <label
               v-for="f in [

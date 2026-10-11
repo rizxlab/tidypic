@@ -1700,3 +1700,13 @@ input::-webkit-inner-spin-button {
     max-width: calc(100vw - 32px);
   }
 }
+
+/* Compact file-size limit, including narrow mobile sheets. */
+.size-limit-row { display: flex; gap: 8px; margin-top: 6px; }
+.size-limit-number { display: flex; align-items: center; flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: white; padding-left: 10px; }
+.size-limit-number span { flex-shrink: 0; font-size: 13px; color: var(--text-secondary); }
+.size-limit-number input { min-width: 0; width: 100%; border: 0; background: transparent; padding: 9px 8px; }
+.size-limit-number.disabled { opacity: .5; background: var(--surface); }
+.size-limit-row select { flex: 0 0 72px; width: 72px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+.size-shortcuts { flex-wrap: wrap; }
+.size-shortcuts button.active { color: var(--accent); border-color: var(--accent); background: #eef2ff; }

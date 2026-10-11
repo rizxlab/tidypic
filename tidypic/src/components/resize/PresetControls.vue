@@ -1,6 +1,16 @@
-<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import type { ImagePresets } from "../../composables/useImagePresets";
+<script setup lang="ts" generic="P extends PresetOption">
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+} from "vue";
+import type {
+  PresetOption,
+  PresetController,
+} from "../../utils/presets/controller";
 import type { ImagePreset } from "../../utils/presets/model";
 import { commonPresets } from "../../data/presets/common";
 import {
@@ -9,7 +19,7 @@ import {
 } from "../../data/presets/platform";
 import AppIcon from "../AppIcon.vue";
 const props = defineProps<{
-  presets: ImagePresets;
+  presets: PresetController<P>;
   userOnly?: boolean;
   disabled: boolean;
   invalid: boolean;
@@ -24,7 +34,7 @@ const opened = ref(false),
   platform = ref(""),
   manage = ref(""),
   action = ref<"save" | "rename" | "delete">("save"),
-  target = ref<ImagePreset>(),
+  target = shallowRef<P>(),
   name = ref(""),
   dialogError = ref("");
 const platforms = computed(() => platformGroups());
@@ -62,11 +72,16 @@ function escape(e: KeyboardEvent) {
     close(true);
   }
 }
-function apply(p: ImagePreset) {
-  props.presets.apply(p);
-  close(true);
+async function apply(p: P | ImagePreset) {
+  try {
+    await props.presets.apply(p as P);
+    close(true);
+  } catch (e) {
+    props.presets.error.value =
+      e instanceof Error ? e.message : "无法应用预设。";
+  }
 }
-async function edit(kind: typeof action.value, p?: ImagePreset) {
+async function edit(kind: typeof action.value, p?: P) {
   close();
   emit("opening");
   action.value = kind;
@@ -86,9 +101,12 @@ function dismiss() {
     overflow = undefined;
   }
 }
-function submit() {
+const submitting = ref(false);
+async function submit() {
+  if (submitting.value) return;
+  submitting.value = true;
   try {
-    if (action.value === "save") props.presets.save(name.value);
+    if (action.value === "save") await props.presets.save(name.value);
     else if (action.value === "rename")
       props.presets.rename(target.value!.id, name.value);
     else props.presets.remove(target.value!.id);
@@ -96,6 +114,8 @@ function submit() {
   } catch (e) {
     dialogError.value =
       e instanceof Error ? e.message : "无法保存预设，请稍后重试。";
+  } finally {
+    submitting.value = false;
   }
 }
 onMounted(() => {
@@ -290,8 +310,10 @@ defineExpose({ close });
           <div class="preset-dialog-actions">
             <button type="button" class="secondary" @click="dismiss">
               取消</button
-            ><button type="submit" class="primary">
-              {{ action === "delete" ? "删除" : "保存" }}
+            ><button type="submit" class="primary" :disabled="submitting">
+              {{
+                submitting ? "保存中…" : action === "delete" ? "删除" : "保存"
+              }}
             </button>
           </div>
         </form>

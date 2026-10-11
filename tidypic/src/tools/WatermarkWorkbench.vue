@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import PresetControls from "../components/resize/PresetControls.vue";
+import { useWatermarkPresets } from "../composables/useWatermarkPresets";
 import WatermarkContent from "../components/watermark/WatermarkContent.vue";
 import WatermarkParameterBar from "../components/watermark/WatermarkParameterBar.vue";
 import AppIcon from "../components/AppIcon.vue";
@@ -29,6 +31,8 @@ const {
   error,
 } = batch;
 const settings = ref(defaultWatermarkSettings());
+const logoFile = shallowRef<File>();
+const presets = useWatermarkPresets(settings, logoFile);
 const selectedId = batch.workspace.activeId,
   logo = shallowRef<ImageBitmap>(),
   logoUrl = ref(""),
@@ -82,6 +86,9 @@ watch(
 watch(settings, batch.invalidate, { deep: true, flush: "sync" });
 let disposed = false;
 let tiledInitialized = false;
+watch(presets.selected, (p) => {
+  if (p) tiledInitialized = true;
+});
 function changeLayout(layout: "single" | "tiled") {
   if (layout === "tiled" && !tiledInitialized) {
     settings.value.size = "medium";
@@ -89,30 +96,50 @@ function changeLayout(layout: "single" | "tiled") {
   }
   settings.value.layout = layout;
 }
-async function uploadLogo(files: FileList | null) {
-  const file = files?.[0];
-  if (!file || controlsLocked.value) return;
+let logoGeneration = 0;
+watch(logoFile, (file) => {
+  void loadLogo(file);
+});
+async function loadLogo(file?: File) {
+  const generation = ++logoGeneration;
+  if (!file) {
+    logo.value?.close();
+    logo.value = undefined;
+    if (logoUrl.value) URL.revokeObjectURL(logoUrl.value);
+    logoUrl.value = "";
+    logoName.value = "";
+    logoError.value = "";
+    logoLoading.value = false;
+    batch.invalidate();
+    return;
+  }
   logoLoading.value = true;
   logoError.value = "";
+  logo.value?.close();
+  logo.value = undefined;
+  if (logoUrl.value) URL.revokeObjectURL(logoUrl.value);
+  logoUrl.value = "";
+  logoName.value = "";
+  batch.invalidate();
   let next: Awaited<ReturnType<typeof readImage>> | undefined;
   try {
     next = await readImage(file);
     const thumb = await createThumbnail(next);
-    if (disposed) {
+    if (disposed || generation !== logoGeneration) {
       next.bitmap.close();
       return;
     }
-    logo.value?.close();
-    if (logoUrl.value) URL.revokeObjectURL(logoUrl.value);
+    const url = URL.createObjectURL(thumb);
     logo.value = next.bitmap;
-    logoUrl.value = URL.createObjectURL(thumb);
+    logoUrl.value = url;
     logoName.value = file.name;
     batch.invalidate();
   } catch (e) {
     next?.bitmap.close();
-    if (!disposed) logoError.value = friendlyError(e);
+    if (!disposed && generation === logoGeneration)
+      logoError.value = friendlyError(e);
   } finally {
-    logoLoading.value = false;
+    if (generation === logoGeneration) logoLoading.value = false;
     if (logoInput.value) logoInput.value.value = "";
   }
 }
@@ -169,6 +196,12 @@ onBeforeUnmount(() => {
   <section class="watermark-workspace" aria-label="水印设置">
     <div class="watermark-controls">
       <h2>水印设置</h2>
+      <PresetControls
+        :presets="presets"
+        user-only
+        :disabled="controlsLocked"
+        :invalid="!valid"
+      />
       <fieldset :disabled="controlsLocked">
         <WatermarkContent v-model="settings" :disabled="controlsLocked"
           ><template #image>
@@ -179,7 +212,9 @@ onBeforeUnmount(() => {
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 aria-label="选择水印图片"
-                @change="uploadLogo(($event.target as HTMLInputElement).files)"
+                @change="
+                  logoFile = ($event.target as HTMLInputElement).files?.[0]
+                "
               />
               <div v-if="logoUrl" class="logo-thumb">
                 <img :src="logoUrl" alt="水印图片" />

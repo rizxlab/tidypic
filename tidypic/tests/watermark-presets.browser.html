@@ -1,0 +1,168 @@
+<!doctype html><meta charset="utf-8" /><meta
+  name="viewport"
+  content="width=device-width,initial-scale=1"
+/><title>水印预设浏览器验证</title> <button id="run">运行水印预设验证</button>
+<button id="prepare">准备图片预设刷新验证</button>
+<p id="result">尚未运行</p>
+<main id="fixture"></main>
+<script type="module">
+  import { createApp, nextTick } from "vue";
+  import Watermark from "../src/tools/WatermarkWorkbench.vue";
+  import {
+    WATERMARK_PRESET_KEY,
+    loadWatermarkPresets,
+    saveWatermarkPresets,
+    presetLogo,
+    applyWatermarkPreset,
+  } from "../src/utils/presets/watermark.ts";
+  import { defaultWatermarkSettings } from "../src/utils/image/watermark/types.ts";
+  import { readImage } from "../src/utils/image/browser.ts";
+  import "../src/style.css";
+  const root = document.querySelector("#fixture"),
+    result = document.querySelector("#result");
+  let app;
+  function mount() {
+    app = createApp(Watermark);
+    app.mount(root);
+  }
+  mount();
+  const check = (ok, msg) => {
+    if (!ok) throw Error(msg);
+  };
+  const button = (name) =>
+    [...root.querySelectorAll("button")].find(
+      (b) => b.textContent.trim() === name,
+    );
+  async function wait() {
+    for (let i = 0; i < 10; i++) {
+      await nextTick();
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+  const created = [],
+    revoked = [];
+  const create = URL.createObjectURL,
+    revoke = URL.revokeObjectURL;
+  URL.createObjectURL = function (blob) {
+    const u = create.call(this, blob);
+    created.push(u);
+    return u;
+  };
+  URL.revokeObjectURL = function (url) {
+    revoked.push(url);
+    return revoke.call(this, url);
+  };
+  document.querySelector("#run").onclick = async () => {
+    const backup = localStorage.getItem(WATERMARK_PRESET_KEY);
+    try {
+      result.textContent = "验证中";
+      const canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 16;
+      canvas.getContext("2d").fillRect(0, 0, 16, 16);
+      const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+      const file = new File([blob], "QA-logo.png", { type: "image/png" });
+      button("图片水印").click();
+      await wait();
+      const input = root.querySelector('input[aria-label="选择水印图片"]');
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await wait();
+      check(root.querySelector(".logo-thumb img")?.complete, "上传解码预览");
+      button("保存当前设置").click();
+      await wait();
+      const dialog = [...document.querySelectorAll("dialog")].find(
+        (d) => d.open,
+      );
+      const name = dialog.querySelector("input");
+      name.value = "QA-image-" + crypto.randomUUID().slice(0, 8);
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+      dialog
+        .querySelector("form")
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      await wait();
+      check(!dialog.open, "图片预设保存成功");
+      const records = loadWatermarkPresets(localStorage);
+      const saved = records.find((p) => p.name === name.value);
+      check(
+        saved?.logo?.dataUrl.startsWith("data:image/png;base64,"),
+        "持久化真实图片内容",
+      );
+      app.unmount();
+      await wait();
+      check(
+        created.every((u) => revoked.includes(u)),
+        "第一次卸载释放全部URL",
+      );
+      mount();
+      await wait();
+      button("选择预设").click();
+      await wait();
+      button(saved.name).click();
+      await wait();
+      check(
+        root.querySelector(".logo-thumb img")?.complete,
+        "重新挂载后应用恢复图片",
+      );
+      check(
+        root.querySelector(".filename")?.textContent === "QA-logo.png",
+        "素材文件名恢复",
+      );
+      const restored = applyWatermarkPreset(saved);
+      const source = await readImage(restored.logo);
+      check(source.width === 16 && source.height === 16, "恢复图片真实解码");
+      source.bitmap.close();
+      check(
+        !button(saved.name + " · 已修改"),
+        "图片应用后没有错误的已修改状态",
+      );
+      button(saved.name).click();
+      await wait();
+      button("恢复默认设置").click();
+      await wait();
+      check(!root.querySelector(".logo-thumb img"), "恢复默认清理图片");
+      check(
+        created.every((u) => revoked.includes(u)),
+        "恢复默认释放URL",
+      );
+      result.textContent =
+        "全部通过：真实图片上传、保存素材、重挂载恢复、应用后图片解码、参数独立访问、素材名称、选择预设无系统项、恢复默认与卸载URL释放。";
+    } catch (e) {
+      result.textContent = "失败：" + e.message;
+      console.error(e);
+    } finally {
+      if (backup === null) localStorage.removeItem(WATERMARK_PRESET_KEY);
+      else localStorage.setItem(WATERMARK_PRESET_KEY, backup);
+    }
+  };
+
+  document.querySelector("#prepare").onclick = async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    canvas.getContext("2d").fillRect(0, 0, 16, 16);
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+    const logo = await presetLogo(
+      new File([blob], "QA-refresh-logo.png", { type: "image/png" }),
+    );
+    const p = {
+      id: crypto.randomUUID(),
+      name: "QA-图片刷新验证",
+      version: 1,
+      type: "user",
+      createdAt: new Date().toISOString(),
+      settings: { ...defaultWatermarkSettings(), kind: "image" },
+      logo,
+    };
+    saveWatermarkPresets(localStorage, [
+      ...loadWatermarkPresets(localStorage),
+      p,
+    ]);
+    result.textContent =
+      "已准备 QA-图片刷新验证，可刷新普通水印页面应用；验证后删除本测试记录。";
+  };
+</script>
